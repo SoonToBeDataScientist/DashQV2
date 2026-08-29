@@ -1,0 +1,11 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+.streamlit/secrets.toml
+data/journal.db
+data/optuna.db
+models/*.joblib
+# NOTE: these ARE committed on purpose (CI artifacts / cloud state):
+#   data/latest_signals.json, data/snapshots.csv, models/champion_genome.json, universe.json

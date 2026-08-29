@@ -1,0 +1,35 @@
+name: daily-pipeline
+on:
+  schedule:
+    - cron: "30 21 * * *"        # daily, 21:30 UTC (after US close)
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: daily-pipeline
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run pipeline
+        env:
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+          APCA_PAPER: "true"
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          SENTIMENT_BACKEND: "vader"
+        run: python -m src.pipeline --config universe.json
+      - name: Commit artifacts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/latest_signals.json data/snapshots.csv models/champion_genome.json || true
+          git diff --cached --quiet || git commit -m "chore: daily pipeline artifacts [skip ci]"
+          git push

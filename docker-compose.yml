@@ -1,0 +1,27 @@
+services:
+  trader:                        # Streamlit UI
+    build:
+      context: .
+      args: { WITH_FINBERT: ${WITH_FINBERT:-false} }
+    ports:
+      - "8501:8501"
+    env_file: [.env]
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./universe.json:/app/universe.json:ro
+    restart: unless-stopped
+
+  scheduler:                     # always-on automation (daily pipeline + realtime snapshots)
+    build:
+      context: .
+      args: { WITH_FINBERT: ${WITH_FINBERT:-false} }
+    command: python scheduler.py
+    env_file: [.env]
+    environment:
+      - UNIVERSE_CONFIG=universe.json
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./universe.json:/app/universe.json:ro
+    restart: unless-stopped
