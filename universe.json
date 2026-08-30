@@ -1,0 +1,14 @@
+{
+  "stocks": ["AAPL", "MSFT", "NVDA", "SPY"],
+  "cryptos": ["BTC/USD", "ETH/USD"],
+  "years": 4,
+  "fee_bps": 2,
+  "slippage_bps": 5,
+  "allow_short": false,
+  "trade": true,
+  "sentiment_backend": "auto",
+  "evolution": { "enabled": true, "weekday": 5, "eval_years": 2,
+                 "method": "evolution", "pop_size": 6, "generations": 2, "trials": 25,
+                 "promote_margin": 0.05, "ic_panic_threshold": -0.02, "ic_min_obs": 60,
+                 "intraday_reaction": true }
+}
