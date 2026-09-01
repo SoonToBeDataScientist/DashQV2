@@ -242,12 +242,16 @@ with tab_lab:
             rows, hist = models.evolve(panel_full, pop_size, n_gen, seed,
                                        cost_bps=fee_bps + slip_bps, progress=cb)
         else:
+            base = {}
             def cb2(study, trial):
-                bar.progress(min(1.0, len(study.trials) / max(1, n_trials)))
+                base.setdefault("n", len(study.trials) - 1)   # trials already in the study before this click
+                done = len(study.trials) - base["n"]
+                bar.progress(min(1.0, done / max(1, n_trials)))
+                carried = f" · {base['n']} carried over from a previous resumed run" if base["n"] > 0 else ""
                 try:
-                    status.write(f"Trial {len(study.trials)}/{n_trials} — best {study.best_value:.3f}")
+                    status.write(f"Trial {done}/{n_trials} — best {study.best_value:.3f}{carried}")
                 except Exception:
-                    status.write(f"Trial {len(study.trials)}/{n_trials}")
+                    status.write(f"Trial {done}/{n_trials}{carried}")
             storage = f"sqlite:///{os.path.join(DATA_DIR, 'optuna.db')}" if resume else None
             rows, hist, _ = optimize.optimize(panel_full, n_trials=n_trials, seed=seed,
                                               cost_bps=fee_bps + slip_bps, storage=storage,
