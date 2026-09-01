@@ -4,8 +4,9 @@ venv/
 __pycache__/
 *.pyc
 .streamlit/secrets.toml
-data/journal.db
 data/optuna.db
-models/*.joblib
-# NOTE: these ARE committed on purpose (CI artifacts / cloud state):
-#   data/latest_signals.json, data/snapshots.csv, models/champion_genome.json, universe.json
+# NOTE: these ARE committed on purpose (CI artifacts / cloud state — no persistent
+# volume on Streamlit Cloud/GitHub Actions, so anything not committed is lost every run):
+#   data/latest_signals.json, data/snapshots.csv, data/journal.db,
+#   models/champion_genome.json, models/champion.joblib,
+#   models/champion_genome.prev.json, models/champion.prev.joblib, universe.json
