@@ -1,0 +1,39 @@
+name: intraday-check
+on:
+  schedule:
+    - cron: "*/30 13-20 * * 1-5"   # every 30 min, ~US market hours, Mon-Fri (UTC)
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: dashqv2-pipeline-state    # shared with daily-pipeline — never race on the same git push
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: IC health check (cheap; only trains if it panics)
+        env:
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+          APCA_PAPER: "true"
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          SENTIMENT_BACKEND: "vader"
+        run: python -m src.pipeline --config universe.json --check-intraday
+      - name: Commit artifacts (only happens if the Lab actually ran)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          for f in data/journal.db models/champion_genome.json models/champion.joblib \
+                   models/champion_genome.prev.json models/champion.prev.joblib; do
+            git add "$f" 2>/dev/null || true
+          done
+          git diff --cached --quiet || git commit -m "chore: intraday lab reaction [skip ci]"
+          git pull --rebase origin main || true
+          git push
