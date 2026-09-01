@@ -404,7 +404,9 @@ with tab_auto:
         if os.path.exists(p):
             d = json.load(open(p))
             ts = pd.Timestamp(d.get("ts"))
-            age = pd.Timestamp.utcnow() - ts
+            if ts.tzinfo is not None:          # be robust to either naive or tz-aware stored timestamps
+                ts = ts.tz_localize(None)
+            age = pd.Timestamp.now("UTC").tz_localize(None) - ts
             st.metric("Last pipeline run", f"{ts:%Y-%m-%d %H:%M} UTC",
                       f"{age.days * 24 + age.seconds // 3600}h ago")
             st.write(f"**Genome:** {d.get('genome', '?')} · **Regime:** `{d.get('regime')}`")
@@ -432,6 +434,16 @@ with tab_auto:
     st.divider()
     st.markdown("#### Recent automation events")
     st.dataframe(journal.read(JOURNAL_PATH, limit=50), use_container_width=True)
+
+    evo_events = journal.read(JOURNAL_PATH, kind="evolution", limit=200)
+    if not evo_events.empty:
+        st.markdown("#### 🧬 Autonomous lab history")
+        st.caption("Every time the lab ran: what triggered it (scheduled / ic_panic / manual), "
+                   "champion vs challenger score, the champion's live forward-test IC at "
+                   "decision time, and whether a promotion happened.")
+        ev = pd.DataFrame([json.loads(p) for p in evo_events["payload"]])
+        ev.insert(0, "ts", pd.to_datetime(evo_events["ts"]).dt.strftime("%Y-%m-%d %H:%M"))
+        st.dataframe(ev, use_container_width=True)
 
     st.divider()
     st.markdown("#### Continuous forward test — do journaled signals predict future returns?")
