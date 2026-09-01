@@ -6,7 +6,7 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: daily-pipeline
+  group: dashqv2-pipeline-state
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -30,6 +30,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/latest_signals.json data/snapshots.csv models/champion_genome.json || true
+          for f in data/latest_signals.json data/snapshots.csv data/journal.db \
+                   models/champion_genome.json models/champion.joblib \
+                   models/champion_genome.prev.json models/champion.prev.joblib; do
+            git add "$f" 2>/dev/null || true
+          done
           git diff --cached --quiet || git commit -m "chore: daily pipeline artifacts [skip ci]"
+          git pull --rebase origin main || true
           git push
