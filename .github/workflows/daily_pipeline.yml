@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: "30 21 * * *"        # daily, 21:30 UTC (after US close)
   workflow_dispatch:
+    inputs:
+      evolve:
+        description: "Force the Strategy Lab to search + evolve now (ignores weekday schedule)"
+        type: boolean
+        default: false
 permissions:
   contents: write
 concurrency:
@@ -25,7 +30,12 @@ jobs:
           APCA_PAPER: "true"
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           SENTIMENT_BACKEND: "vader"
-        run: python -m src.pipeline --config universe.json
+        run: |
+          ARGS="--config universe.json"
+          if [ "${{ github.event.inputs.evolve }}" = "true" ]; then
+            ARGS="$ARGS --evolve"
+          fi
+          python -m src.pipeline $ARGS
       - name: Commit artifacts
         run: |
           git config user.name "github-actions[bot]"
