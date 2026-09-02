@@ -1,0 +1,25 @@
+{
+  "ts": "2026-09-02T00:43:36.632062+00:00",
+  "symbols": [
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "SPY",
+    "BTC/USD",
+    "ETH/USD"
+  ],
+  "genome": "base",
+  "signals": {
+    "AAPL": -0.0,
+    "BTC/USD": 0.1792,
+    "ETH/USD": 0.0,
+    "MSFT": 0.0,
+    "NVDA": -0.0,
+    "SPY": 0.0218
+  },
+  "regime": {
+    "vix": 16.34,
+    "vix_z": -0.25,
+    "spy_ret21": 0.0054
+  }
+}
