@@ -78,8 +78,8 @@ with st.sidebar:
     symbols = stocks + cryptos
     asset_map = {**{s: "stock" for s in stocks}, **{s: "crypto" for s in cryptos}}
     years = st.slider("History (years)", 1, 8, 4)
-    start = dt.datetime.utcnow() - dt.timedelta(days=365 * years)
-    end = dt.datetime.utcnow()
+    start = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(days=365 * years)
+    end = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
     with st.expander("Costs & risk"):
         fee_bps = st.number_input("Fees (bps)", 0.0, 50.0, 2.0, 0.5)
         slip_bps = st.number_input("Slippage (bps)", 0.0, 50.0, 5.0, 0.5)
@@ -201,7 +201,7 @@ with tab_live:
                 with c4:
                     if v == v:
                         st.plotly_chart(gauge("", v), use_container_width=True, key=f"live_{sym}")
-            st.caption(f"Updated {dt.datetime.utcnow():%Y-%m-%d %H:%M:%S} UTC")
+            st.caption(f"Updated {dt.datetime.now(dt.timezone.utc).replace(tzinfo=None):%Y-%m-%d %H:%M:%S} UTC")
 
         if hasattr(st, "fragment"):
             st.fragment(run_every=dt.timedelta(seconds=refresh))(render_live)()
@@ -231,7 +231,7 @@ with tab_lab:
 
     if st.button("🚀 Run search", type="primary"):
         full = Genome(feature_groups=tuple(FEATURE_GROUPS), use_macro=True, use_sentiment=True)
-        cutoff = dt.datetime.utcnow() - dt.timedelta(days=365 * eval_years)
+        cutoff = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(days=365 * eval_years)
         panel_full = build_panel(bars, macro, sent, full, exo)
         panel_full = panel_full[panel_full["date"] >= pd.Timestamp(cutoff)]
         bar, status = st.progress(0.0), st.empty()
