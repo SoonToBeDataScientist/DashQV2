@@ -9,11 +9,10 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import requests
 import streamlit as st
 
 from src import backtest, datafeed, exodata, features, forwardtest, journal, models, optimize
-from src.config import get_secret, load_settings
+from src.config import load_settings
 from src.features import FEATURE_GROUPS, build_live_row, build_panel
 from src.models import Genome
 
@@ -435,36 +434,6 @@ with tab_auto:
                         st.json(out)
                     except Exception as e:
                         st.error(str(e))
-
-    st.divider()
-    st.markdown("#### 🧬 Force a full Strategy Lab search — on GitHub, not here")
-    st.caption("Runs the heavy population/generation search on GitHub's runners instead of "
-               "this dashboard, so a big search can't crash or time out the app. Needs a "
-               "GitHub fine-grained Personal Access Token (repo-scoped, Actions: Read and "
-               "write only) saved as `GITHUB_PAT` in this app's Secrets.")
-    gh_repo = "SoonToBeDataScientist/DashQV2"
-    if st.button("🚀 Trigger evolve on GitHub Actions"):
-        gh_pat = get_secret("GITHUB_PAT")
-        if not gh_pat:
-            st.error("`GITHUB_PAT` isn't set in this app's Secrets — add it first (Settings → "
-                     "Secrets on Streamlit Cloud), then try again.")
-        else:
-            try:
-                resp = requests.post(
-                    f"https://api.github.com/repos/{gh_repo}/actions/workflows/daily_pipeline.yml/dispatches",
-                    headers={"Authorization": f"Bearer {gh_pat}",
-                             "Accept": "application/vnd.github+json",
-                             "X-GitHub-Api-Version": "2022-11-28"},
-                    json={"ref": "main", "inputs": {"evolve": "true"}},
-                    timeout=15,
-                )
-                if resp.status_code == 204:
-                    st.success("Triggered — it'll show up on GitHub in a few seconds: "
-                               f"https://github.com/{gh_repo}/actions/workflows/daily_pipeline.yml")
-                else:
-                    st.error(f"GitHub rejected the request ({resp.status_code}): {resp.text[:300]}")
-            except Exception as e:
-                st.error(f"Couldn't reach GitHub: {e}")
 
     st.divider()
     st.markdown("#### Recent automation events")
