@@ -1,0 +1,21 @@
+{
+  "name": "G2-0",
+  "model_type": "lgbm",
+  "feature_groups": [
+    "volume",
+    "options",
+    "short",
+    "onchain"
+  ],
+  "use_macro": true,
+  "use_sentiment": true,
+  "horizon": 3,
+  "train_window": 378,
+  "retrain_every": 42,
+  "smooth": 8,
+  "entry": 0.3,
+  "max_leverage": 1.0,
+  "n_estimators": 300,
+  "learning_rate": 0.1,
+  "max_depth": 3
+}
