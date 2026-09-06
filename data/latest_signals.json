@@ -1,5 +1,5 @@
 {
-  "ts": "2026-09-05T23:04:31.260592+00:00",
+  "ts": "2026-09-06T22:57:25.643539+00:00",
   "symbols": [
     "AAPL",
     "MSFT",
@@ -8,14 +8,14 @@
     "BTC/USD",
     "ETH/USD"
   ],
-  "genome": "base",
+  "genome": "G2-0",
   "signals": {
-    "AAPL": -0.0,
+    "AAPL": 0.0,
     "BTC/USD": 0.0,
     "ETH/USD": 0.0,
     "MSFT": 0.0,
-    "NVDA": -0.0107,
-    "SPY": 0.0407
+    "NVDA": 0.0,
+    "SPY": 0.0
   },
   "regime": {
     "vix": 14.32,
