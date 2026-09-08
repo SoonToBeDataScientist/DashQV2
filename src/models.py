@@ -164,6 +164,34 @@ def walk_forward_signals(panel: pd.DataFrame, genome: Genome):
     return pd.DataFrame(v, index=sig.index, columns=sig.columns), last_model
 
 
+def diagnose_walk_forward(panel: pd.DataFrame, genome: Genome) -> pd.DataFrame:
+    """Same window loop as walk_forward_signals, but reports per-window pass/skip instead of
+    training anything — lets you see exactly which retrain windows produced no signal, and why,
+    without re-running (and paying for) the real fit each time."""
+    tcol = f"target_{genome.horizon}"
+    panel = panel.sort_values("date").reset_index(drop=True)
+    dates = np.sort(panel["date"].unique())
+    rows = []
+    if len(dates) < genome.train_window + genome.horizon + 10:
+        return pd.DataFrame([{"test_start": None, "test_end": None, "train_rows": 0,
+                              "status": "skipped", "reason": "not enough history at all "
+                              f"({len(dates)} dates < train_window+horizon+10)"}])
+    i = genome.train_window
+    while i < len(dates):
+        tr = panel[panel["date"].isin(dates[i - genome.train_window:i])].dropna(subset=[tcol])
+        te_dates = dates[i:i + genome.retrain_every]
+        te = panel[panel["date"].isin(te_dates)]
+        ok = len(tr) >= 200 and not te.empty
+        reason = ("ok" if ok else
+                 ("training rows below 200 after dropping NaN targets" if len(tr) < 200
+                  else "no test rows in this window (symbols missing data here?)"))
+        rows.append({"test_start": pd.Timestamp(te_dates[0]) if len(te_dates) else None,
+                     "test_end": pd.Timestamp(te_dates[-1]) if len(te_dates) else None,
+                     "train_rows": len(tr), "status": "ok" if ok else "skipped", "reason": reason})
+        i += genome.retrain_every
+    return pd.DataFrame(rows)
+
+
 def train_final_model(panel: pd.DataFrame, genome: Genome) -> SignalModel:
     tcol = f"target_{genome.horizon}"
     cols = [c for c in feature_columns(genome) if c in panel.columns]
