@@ -217,6 +217,12 @@ with tab_lab:
                "macro/sentiment toggles + horizon + thresholds + sizing. "
                "Fitness = Sharpe − ½·|MaxDD| on a strictly out-of-sample walk-forward backtest.")
     method = st.radio("Search method", ["Evolution (genetic)", "Optuna (Bayesian)"], horizontal=True)
+    exclude_groups = st.multiselect(
+        "Exclude feature groups from search", options=list(FEATURE_GROUPS),
+        default=["options", "short", "onchain"],
+        help="These groups' real snapshot history only recently started accumulating — "
+             "including them can make the search pick a genome trained mostly on "
+             "placeholder data. Excluded by default until there's enough real history.")
     c1, c2, c3 = st.columns(3)
     eval_years = c1.slider("Evaluation window (years)", 1, 4, 2)
     seed = c2.number_input("Random seed", 0, 9999, 42)
@@ -240,7 +246,8 @@ with tab_lab:
                 bar.progress((g + 1) / n)
                 status.write(f"Generation {g + 1}/{n} — best fitness **{best_score:.3f}** ({best_g.name})")
             rows, hist = models.evolve(panel_full, pop_size, n_gen, seed,
-                                       cost_bps=fee_bps + slip_bps, progress=cb)
+                                       cost_bps=fee_bps + slip_bps, progress=cb,
+                                       exclude_groups=tuple(exclude_groups))
         else:
             base = {}
             def cb2(study, trial):
@@ -255,7 +262,8 @@ with tab_lab:
             storage = f"sqlite:///{os.path.join(DATA_DIR, 'optuna.db')}" if resume else None
             rows, hist, _ = optimize.optimize(panel_full, n_trials=n_trials, seed=seed,
                                               cost_bps=fee_bps + slip_bps, storage=storage,
-                                              timeout=timeout_min * 60 or None, progress=cb2)
+                                              timeout=timeout_min * 60 or None, progress=cb2,
+                                              exclude_groups=tuple(exclude_groups))
         st.session_state["lab"] = {"rows": rows, "hist": hist}
         status.success("Done — pick a champion below.")
 
@@ -267,6 +275,11 @@ with tab_lab:
         st.dataframe(pd.DataFrame([{k: v for k, v in r.items() if k != "genome"}
                                    for r in rows]), use_container_width=True)
         idx = st.number_input("Leaderboard row to promote", 0, len(rows) - 1, 0)
+        chosen_score = rows[int(idx)]["score"]
+        if chosen_score <= 0:
+            st.warning(f"This candidate's backtest score is **{chosen_score:.3f}** — at or "
+                       "below breakeven. Promoting it makes it champion anyway, but it isn't "
+                       "a proven-profitable strategy, just the best one tried so far.")
         if st.button("💾 Train on full history & save as champion"):
             g = rows[int(idx)]["genome"]
             full = Genome(feature_groups=tuple(FEATURE_GROUPS), use_macro=True, use_sentiment=True)
