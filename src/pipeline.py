@@ -66,21 +66,23 @@ def evolved_today(jpath: str) -> bool:
 
 def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=None, n_obs=0):
     """Run the Strategy Lab (search + champion/challenger comparison) and promote if the
-    challenger clears promote_margin. Shared by the nightly run() and the intraday check —
-    this never touches trading, only the champion files."""
+    challenger clears promote_margin AND promote_min_score. Shared by the nightly run() and
+    the intraday check — this never touches trading, only the champion files."""
     evo = cfg.get("evolution", {})
     cutoff = pd.Timestamp.now("UTC").tz_localize(None) - pd.Timedelta(days=365 * evo.get("eval_years", 2))
     pe = panel[panel["date"] >= cutoff]
     cost = cfg.get("fee_bps", 2) + cfg.get("slippage_bps", 5)
+    exclude_groups = tuple(evo.get("exclude_feature_groups", []))
 
     if evo.get("method", "evolution") == "optuna":
         from . import optimize
         storage = f"sqlite:///{os.path.join(s.data_dir, 'optuna.db')}"   # warm-starts weekly
         rows, _, _ = optimize.optimize(pe, n_trials=evo.get("trials", 25),
-                                       cost_bps=cost, storage=storage)
+                                       cost_bps=cost, storage=storage, exclude_groups=exclude_groups)
     else:
         rows, _ = models.evolve(pe, pop_size=evo.get("pop_size", 6),
-                                generations=evo.get("generations", 2), cost_bps=cost)
+                                generations=evo.get("generations", 2), cost_bps=cost,
+                                exclude_groups=exclude_groups)
 
     prices = pe.pivot_table(index="date", columns="symbol", values="close").sort_index().ffill()
     champ_sig, _ = models.walk_forward_signals(pe, genome)
@@ -88,17 +90,21 @@ def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=Non
                          cfg.get("slippage_bps", 5) / 2, genome.max_leverage).metrics
     champ_score = cm["sharpe"] - 0.5 * abs(cm["max_drawdown"])
     challenger = rows[0]
+    min_score = evo.get("promote_min_score", 0.0)
     event = {"trigger": trigger, "champion": genome.name,
              "champion_score": round(champ_score, 3),
              "champion_live_ic": (round(live_ic, 3) if live_ic is not None else None),
              "champion_live_obs": n_obs,
              "challenger": challenger["name"], "challenger_score": challenger["score"]}
-    if challenger["score"] > champ_score + evo.get("promote_margin", 0.05):
+    if (challenger["score"] > champ_score + evo.get("promote_margin", 0.05)
+            and challenger["score"] > min_score):
         g = challenger["genome"]
         save_champion(s, g, models.train_final_model(panel, g))
         event["promoted"] = g.name
     else:
         event["promoted"] = None
+        event["promote_blocked_reason"] = ("below promote_min_score"
+            if challenger["score"] <= min_score else None)
     journal.log(jpath, "evolution", event)
     return event
 
