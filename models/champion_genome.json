@@ -1,21 +1,21 @@
 {
   "name": "G2-0",
-  "model_type": "lgbm",
+  "model_type": "hgb",
   "feature_groups": [
+    "trend",
+    "momentum",
     "volume",
-    "options",
-    "short",
-    "onchain"
+    "options"
   ],
   "use_macro": true,
   "use_sentiment": true,
-  "horizon": 3,
+  "horizon": 5,
   "train_window": 378,
-  "retrain_every": 42,
-  "smooth": 8,
-  "entry": 0.3,
-  "max_leverage": 1.0,
+  "retrain_every": 10,
+  "smooth": 1,
+  "entry": 0.08534171893259841,
+  "max_leverage": 1.5,
   "n_estimators": 300,
   "learning_rate": 0.1,
-  "max_depth": 3
+  "max_depth": 6
 }
