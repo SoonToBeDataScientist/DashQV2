@@ -10,8 +10,9 @@ from .features import FEATURE_GROUPS
 from .models import Genome, walk_forward_signals
 
 
-def _suggest(trial) -> Genome:
-    groups = [g for g in FEATURE_GROUPS if trial.suggest_categorical(f"grp_{g}", [0, 1])]
+def _suggest(trial, exclude_groups=()) -> Genome:
+    eligible = [g for g in FEATURE_GROUPS if g not in exclude_groups]
+    groups = [g for g in eligible if trial.suggest_categorical(f"grp_{g}", [0, 1])]
     return Genome(
         name=f"T{trial.number}", feature_groups=tuple(groups or ["momentum"]),
         model_type=trial.suggest_categorical("model_type", ["lgbm", "hgb", "rf"]),
@@ -29,7 +30,7 @@ def _suggest(trial) -> Genome:
 
 
 def optimize(panel, n_trials=40, seed=42, cost_bps=10.0, storage=None,
-             study_name="adaptive-trader", timeout=None, progress=None):
+             study_name="adaptive-trader", timeout=None, progress=None, exclude_groups=()):
     import optuna
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     prices = panel.pivot_table(index="date", columns="symbol", values="close").sort_index().ffill()
@@ -38,7 +39,7 @@ def optimize(panel, n_trials=40, seed=42, cost_bps=10.0, storage=None,
                                 storage=storage, study_name=study_name, load_if_exists=True)
 
     def objective(trial):
-        g = _suggest(trial)
+        g = _suggest(trial, exclude_groups)
         trial.set_user_attr("genome", asdict(g))
         try:
             sig, _ = walk_forward_signals(panel, g)
