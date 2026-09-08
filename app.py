@@ -162,6 +162,14 @@ with tab_daily:
     fig.update_layout(height=240, margin=dict(l=10, r=10, t=10, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
+    with st.expander("Why are there gaps in the history above?"):
+        diag = models.diagnose_walk_forward(panel, genome)
+        n_skip = (diag["status"] == "skipped").sum()
+        st.caption(f"{n_skip} of {len(diag)} retrain windows produced no signal at all "
+                   "(shows as a blank/black band above) — usually too little clean training "
+                   "data for that window, not a bug.")
+        st.dataframe(diag, use_container_width=True)
+
     if last_model is not None and not last_model.feature_importance().empty:
         st.markdown("### What drives the model")
         fi = last_model.feature_importance().tail(20)
