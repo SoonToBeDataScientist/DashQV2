@@ -41,8 +41,9 @@ class Genome:
         return json.dumps(d, sort_keys=True)
 
 
-def random_genome(rng, name="") -> Genome:
-    groups = [g for g in FEATURE_GROUPS if rng.random() < 0.6] or ["momentum"]
+def random_genome(rng, name="", exclude_groups=()) -> Genome:
+    eligible = [g for g in FEATURE_GROUPS if g not in exclude_groups]
+    groups = [g for g in eligible if rng.random() < 0.6] or ["momentum"]
     pick = lambda opts: opts[int(rng.integers(len(opts)))]
     return Genome(name=name, model_type=pick(["lgbm", "lgbm", "hgb", "rf"]),
                   feature_groups=tuple(groups),
@@ -64,7 +65,7 @@ def crossover(a: Genome, b: Genome, rng) -> Genome:
     return Genome(name="", **d)
 
 
-def mutate(g: Genome, rng) -> Genome:
+def mutate(g: Genome, rng, exclude_groups=()) -> Genome:
     d = asdict(g)
     pick = lambda opts: opts[int(rng.integers(len(opts)))]
     if rng.random() < 0.5:
@@ -72,7 +73,7 @@ def mutate(g: Genome, rng) -> Genome:
         if rng.random() < 0.5 and len(groups) > 1:
             groups.pop(int(rng.integers(len(groups))))
         else:
-            cand = [x for x in FEATURE_GROUPS if x not in groups]
+            cand = [x for x in FEATURE_GROUPS if x not in groups and x not in exclude_groups]
             if cand:
                 groups.append(pick(cand))
         d["feature_groups"] = tuple(groups) or ("momentum",)
@@ -189,8 +190,10 @@ def recent_signals(panel: pd.DataFrame, genome: Genome, model: SignalModel,
 
 # ---------------------------------------------------------------- evolution
 def evolve(panel: pd.DataFrame, pop_size=10, generations=4, seed=42,
-           cost_bps=10.0, progress=None):
-    """Genetic search. Fitness = Sharpe - 0.5*|MaxDD| on walk-forward backtest."""
+           cost_bps=10.0, progress=None, exclude_groups=()):
+    """Genetic search. Fitness = Sharpe - 0.5*|MaxDD| on walk-forward backtest.
+    exclude_groups: feature groups withheld from the search space (e.g. options/short/onchain
+    while their real snapshot history is still too short to be meaningful)."""
     rng = np.random.default_rng(seed)
     prices = panel.pivot_table(index="date", columns="symbol", values="close").sort_index().ffill()
     cache: dict = {}
@@ -211,7 +214,7 @@ def evolve(panel: pd.DataFrame, pop_size=10, generations=4, seed=42,
                 cache[g.key()] = (-999.0, {})
         return cache[g.key()]
 
-    pop = [random_genome(rng, f"G0-{i}") for i in range(pop_size)]
+    pop = [random_genome(rng, f"G0-{i}", exclude_groups) for i in range(pop_size)]
     history = []
     for gen in range(generations):
         scored = sorted(((g, evaluate(g)) for g in pop), key=lambda t: t[1][0], reverse=True)
@@ -223,7 +226,7 @@ def evolve(panel: pd.DataFrame, pop_size=10, generations=4, seed=42,
         nxt = [Genome(**asdict(e)) for e in elites]
         while len(nxt) < pop_size:
             a, b = elites[int(rng.integers(len(elites)))], elites[int(rng.integers(len(elites)))]
-            nxt.append(mutate(crossover(a, b, rng), rng))
+            nxt.append(mutate(crossover(a, b, rng), rng, exclude_groups))
         for i, g in enumerate(nxt):
             g.name = f"G{gen + 1}-{i}"
         pop = nxt
