@@ -8,5 +8,9 @@
   "trade": true,
   "sentiment_backend": "auto",
   "evolution": { "enabled": true, "weekday": 5, "eval_years": 2,
-                 "pop_size": 6, "generations": 2, "promote_margin": 0.05 }
+                 "method": "evolution", "pop_size": 6, "generations": 2, "trials": 25,
+                 "promote_margin": 0.05, "promote_min_score": 0.0,
+                 "exclude_feature_groups": ["options", "short", "onchain"],
+                 "ic_panic_threshold": -0.02, "ic_min_obs": 60,
+                 "intraday_reaction": true }
 }
