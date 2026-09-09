@@ -106,7 +106,7 @@ def get_daily_bars(symbols, asset_map, start, end, s: Settings) -> dict:
 
 
 def get_intraday_bars(sym, asset_class, s: Settings, minutes=15, days=3) -> pd.DataFrame:
-    end = dt.datetime.utcnow()
+    end = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
     start = end - dt.timedelta(days=days)
     if has_alpaca(s):
         try:
@@ -146,7 +146,7 @@ def get_latest_price(sym, asset_class, s: Settings) -> float:
             return float(r[sym].price)
         except Exception:
             pass
-    df = _yf_bars(sym, dt.datetime.utcnow() - dt.timedelta(days=7), None, "1d")
+    df = _yf_bars(sym, dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(days=7), None, "1d")
     return float(df["Close"].iloc[-1]) if df is not None and not df.empty else float("nan")
 
 
@@ -215,7 +215,7 @@ def get_macro(start, s: Settings) -> pd.DataFrame:
 # ---------------------------------------------------------------- sentiment
 def get_news_sentiment(symbols, s: Settings, days=45, max_pages=4, backend="auto") -> pd.DataFrame:
     """Daily sentiment (VADER or FinBERT) + news counts per symbol."""
-    today = dt.datetime.utcnow().date()
+    today = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None).date()
     idx = pd.date_range(today - dt.timedelta(days=days), today, freq="D")
     base = pd.DataFrame(index=idx)
     for sym in symbols:
@@ -230,7 +230,7 @@ def get_news_sentiment(symbols, s: Settings, days=45, max_pages=4, backend="auto
         texts, meta, token = [], [], None
         for _ in range(max_pages):
             kwargs = dict(symbols=",".join(symbols),
-                          start=dt.datetime.utcnow() - dt.timedelta(days=days),
+                          start=dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(days=days),
                           limit=50, include_content=False)
             if token:
                 kwargs["page_token"] = token
