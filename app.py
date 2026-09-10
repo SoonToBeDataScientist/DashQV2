@@ -59,11 +59,6 @@ def load_data(symbols, asset_pairs, start, end, backend):
     return bars, macro, sent, exo
 
 
-@st.cache_data(ttl=21600, show_spinner=False)
-def cached_wf(panel, genome_dict):
-    return models.walk_forward_signals(panel, Genome(**genome_dict))
-
-
 # ---------------------------------------------------------------- sidebar
 with st.sidebar:
     st.title("🧠 Adaptive ML Trader")
@@ -77,7 +72,7 @@ with st.sidebar:
         "Crypto (comma-separated)", "BTC/USD, ETH/USD").split(",") if s.strip()]
     symbols = stocks + cryptos
     asset_map = {**{s: "stock" for s in stocks}, **{s: "crypto" for s in cryptos}}
-    years = st.slider("History (years)", 1, 8, 4)
+    years = st.slider("History (years)", 1, 8, 2)
     start = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(days=365 * years)
     end = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
     with st.expander("Costs & risk"):
@@ -108,9 +103,31 @@ if champion is None and os.path.exists(CHAMPION_JSON):
 
 genome = champion["genome"] if champion else Genome()
 panel = build_panel(bars, macro, sent, genome, exo)
-with st.spinner("Training adaptive models (walk-forward — first run may take ~30s)…"):
-    sig, last_model = cached_wf(panel, asdict(genome))
-live_model = (champion.get("model") if champion else None) or last_model
+live_model = champion.get("model") if champion else None
+
+# Light path by default: read what the daily pipeline already computed instead of re-running
+# the full walk-forward backtest on every page load. That live retrain (dozens of model fits
+# across years of history, for every single visitor) is what was crashing the app on Streamlit
+# Cloud's free tier. A full on-demand recompute is still available further down, opt-in.
+latest, latest_ts = pd.Series(dtype=float), None
+latest_path = os.path.join(DATA_DIR, "latest_signals.json")
+if os.path.exists(latest_path):
+    try:
+        d = json.load(open(latest_path))
+        latest = pd.Series(d.get("signals", {}), dtype=float)
+        latest_ts = d.get("ts")
+    except Exception:
+        pass
+
+sig_hist = pd.DataFrame()
+try:
+    jdf = journal.read(JOURNAL_PATH, kind="signals", limit=500)
+    if not jdf.empty:
+        recs = [{"date": pd.Timestamp(ts).tz_localize(None), **json.loads(p)}
+                for ts, p in zip(jdf["ts"], jdf["payload"])]
+        sig_hist = pd.DataFrame(recs).set_index("date").sort_index()
+except Exception:
+    pass
 
 tab_daily, tab_live, tab_lab, tab_bt, tab_paper, tab_auto = st.tabs(
     ["📊 Daily Signals", "⚡ Realtime", "🧬 Strategy Lab", "📈 Backtest",
@@ -135,44 +152,64 @@ with tab_daily:
         regime = "🟢 Risk-on" if (vz < 0 and sr > 0) else ("🔴 Risk-off" if (vz > 1 or sr < -0.03) else "⚪ Neutral")
         c[5].markdown(f"### {regime}")
 
-    if sig.empty:
-        st.warning("Not enough history to train — increase the history slider.")
+    if latest.empty:
+        st.warning("No pipeline output yet — the daily pipeline hasn't committed a signal yet. "
+                   "Trigger it once from the Automation tab, or wait for the next scheduled run.")
         st.stop()
+    if latest_ts:
+        st.caption(f"Last computed by the daily pipeline: {latest_ts}")
 
     st.markdown("### Latest signals")
     st.caption("The signal **is** the position size: +1 = max long, −1 = max short, 0 = flat. "
                "Everything between is a linear blend — e.g. +0.4 = 40% of max long allocation.")
-    latest = sig.iloc[-1].dropna()
-    cols = st.columns(min(4, len(latest)))
-    for i, (sym, v) in enumerate(latest.items()):
+    latest_nonan = latest.dropna()
+    cols = st.columns(min(4, len(latest_nonan)))
+    for i, (sym, v) in enumerate(latest_nonan.items()):
         with cols[i % len(cols)]:
             st.plotly_chart(gauge(sym, float(v)), use_container_width=True)
             st.markdown(f"<p style='text-align:center'>{sig_label(v)} · strength {abs(v):.0%}</p>",
                         unsafe_allow_html=True)
 
-    w = latest * (genome.max_leverage / len(latest))
-    st.dataframe(pd.DataFrame({"signal": latest, "target weight": w,
-                               "action": latest.map(sig_label)})
+    w = latest_nonan * (genome.max_leverage / len(latest_nonan))
+    st.dataframe(pd.DataFrame({"signal": latest_nonan, "target weight": w,
+                               "action": latest_nonan.map(sig_label)})
                  .style.format({"signal": "{:+.2f}", "target weight": "{:+.1%}"}),
                  use_container_width=True)
 
-    st.markdown("### Signal history (out-of-sample)")
-    fig = px.imshow(sig.tail(90).T, color_continuous_scale="RdYlGn", zmin=-1, zmax=1,
-                    aspect="auto", labels=dict(color="signal"))
-    fig.update_layout(height=240, margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    st.markdown("### Signal history (recent daily runs)")
+    if sig_hist.empty:
+        st.caption("No history yet — this fills in day by day as the scheduled pipeline runs "
+                   "and logs to the journal.")
+    else:
+        fig = px.imshow(sig_hist.tail(90).T, color_continuous_scale="RdYlGn", zmin=-1, zmax=1,
+                        aspect="auto", labels=dict(color="signal"))
+        fig.update_layout(height=240, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True)
 
-    with st.expander("Why are there gaps in the history above?"):
-        diag = models.diagnose_walk_forward(panel, genome)
-        n_skip = (diag["status"] == "skipped").sum()
-        st.caption(f"{n_skip} of {len(diag)} retrain windows produced no signal at all "
-                   "(shows as a blank/black band above) — usually too little clean training "
-                   "data for that window, not a bug.")
-        st.dataframe(diag, use_container_width=True)
+    with st.expander("🔬 Compute full multi-year walk-forward now (heavy — opt-in)"):
+        st.caption("Retrains across the whole history selected in the sidebar to reconstruct "
+                   "out-of-sample signals for periods before the journal existed. This is exactly "
+                   "the computation that was overloading the app before — use sparingly, and "
+                   "prefer the GitHub Actions `--evolve` path for anything you need regularly.")
+        if st.button("Run full walk-forward now"):
+            with st.spinner("Training adaptive models (walk-forward)…"):
+                sig_full, wf_model = models.walk_forward_signals(panel, genome)
+            if sig_full.empty:
+                st.warning("Not enough history to train — increase the history slider.")
+            else:
+                fig2 = px.imshow(sig_full.tail(90).T, color_continuous_scale="RdYlGn", zmin=-1, zmax=1,
+                                 aspect="auto", labels=dict(color="signal"))
+                fig2.update_layout(height=240, margin=dict(l=10, r=10, t=10, b=10))
+                st.plotly_chart(fig2, use_container_width=True)
+                diag = models.diagnose_walk_forward(panel, genome)
+                n_skip = (diag["status"] == "skipped").sum()
+                st.caption(f"{n_skip} of {len(diag)} retrain windows produced no signal at all "
+                           "— usually too little clean training data for that window.")
+                st.dataframe(diag, use_container_width=True)
 
-    if last_model is not None and not last_model.feature_importance().empty:
+    if live_model is not None and not live_model.feature_importance().empty:
         st.markdown("### What drives the model")
-        fi = last_model.feature_importance().tail(20)
+        fi = live_model.feature_importance().tail(20)
         st.plotly_chart(px.bar(fi, orientation="h", height=420), use_container_width=True)
 
 # ================================================================ REALTIME
@@ -392,10 +429,10 @@ with tab_paper:
         st.info("No open positions.")
 
     st.markdown("### Rebalance to current signals")
-    if sig.empty:
+    if latest.empty:
         st.warning("No signals available — check the Daily tab first.")
         st.stop()
-    latest_p = sig.iloc[-1].reindex(list(bars.keys())).fillna(0)
+    latest_p = latest.reindex(list(bars.keys())).fillna(0)
     w = latest_p.clip(lower=0 if not allow_short else -1)
     crypto_syms = [s for s in w.index if asset_map.get(s) == "crypto"]
     w[crypto_syms] = w[crypto_syms].clip(lower=0)      # no crypto shorts on Alpaca
