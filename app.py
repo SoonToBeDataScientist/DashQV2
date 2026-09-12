@@ -59,6 +59,11 @@ def load_data(symbols, asset_pairs, start, end, backend):
     return bars, macro, sent, exo
 
 
+@st.cache_data(ttl=21600, show_spinner=False)
+def cached_wf(panel, genome_dict):
+    return models.walk_forward_signals(panel, Genome(**genome_dict))
+
+
 # ---------------------------------------------------------------- sidebar
 with st.sidebar:
     st.title("🧠 Adaptive ML Trader")
