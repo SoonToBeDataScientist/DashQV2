@@ -18,12 +18,20 @@ def signal_events(journal_df) -> pd.DataFrame:
         ts = pd.Timestamp(r["ts"]).tz_localize(None)
         if r["kind"] == "signals":                       # {sym: value}
             for sym, v in payload.items():
-                rows.append({"ts": ts, "symbol": sym, "signal": float(v)})
+                if v is None:                             # e.g. weekend: equity has no fresh bar
+                    continue
+                try:
+                    rows.append({"ts": ts, "symbol": sym, "signal": float(v)})
+                except (TypeError, ValueError):
+                    continue
         else:                                            # {sym: {signal, price}}
             for sym, d in payload.items():
-                if isinstance(d, dict) and "signal" in d:
-                    rows.append({"ts": ts, "symbol": sym, "signal": float(d["signal"]),
-                                 "price": d.get("price")})
+                if isinstance(d, dict) and d.get("signal") is not None:
+                    try:
+                        rows.append({"ts": ts, "symbol": sym, "signal": float(d["signal"]),
+                                     "price": d.get("price")})
+                    except (TypeError, ValueError):
+                        continue
     return pd.DataFrame(rows)
 
 
@@ -61,4 +69,3 @@ def report(events, closes, horizon=5, rolling=250) -> dict:
         "edge": (df["signal"] * df["fwd_ret"]).groupby(df["date"]).mean(),
         "detail": df,
     }
-
