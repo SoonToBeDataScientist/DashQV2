@@ -73,15 +73,20 @@ def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=Non
     pe = panel[panel["date"] >= cutoff]
     cost = cfg.get("fee_bps", 2) + cfg.get("slippage_bps", 5)
     exclude_groups = tuple(evo.get("exclude_feature_groups", []))
+    # Vary the seed per calendar day (not a fixed constant) so each run actually explores new
+    # territory instead of reconverging on ~the same population every week — the 2-year eval
+    # window barely shifts week to week, so a fixed seed mostly just re-derives last week's
+    # answer. Still reproducible: re-running on the same UTC date gives the same seed.
+    seed = evo.get("seed") or int(pd.Timestamp.now("UTC").strftime("%Y%m%d"))
 
     if evo.get("method", "evolution") == "optuna":
         from . import optimize
         storage = f"sqlite:///{os.path.join(s.data_dir, 'optuna.db')}"   # warm-starts weekly
-        rows, _, _ = optimize.optimize(pe, n_trials=evo.get("trials", 25),
+        rows, _, _ = optimize.optimize(pe, n_trials=evo.get("trials", 25), seed=seed,
                                        cost_bps=cost, storage=storage, exclude_groups=exclude_groups)
     else:
         rows, _ = models.evolve(pe, pop_size=evo.get("pop_size", 6),
-                                generations=evo.get("generations", 2), cost_bps=cost,
+                                generations=evo.get("generations", 2), cost_bps=cost, seed=seed,
                                 exclude_groups=exclude_groups)
 
     prices = pe.pivot_table(index="date", columns="symbol", values="close").sort_index().ffill()
@@ -91,7 +96,7 @@ def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=Non
     champ_score = cm["sharpe"] - 0.5 * abs(cm["max_drawdown"])
     challenger = rows[0]
     min_score = evo.get("promote_min_score", 0.0)
-    event = {"trigger": trigger, "champion": genome.name,
+    event = {"trigger": trigger, "seed": seed, "champion": genome.name,
              "champion_score": round(champ_score, 3),
              "champion_live_ic": (round(live_ic, 3) if live_ic is not None else None),
              "champion_live_obs": n_obs,
