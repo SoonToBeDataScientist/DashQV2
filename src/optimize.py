@@ -22,7 +22,7 @@ def _suggest(trial, exclude_groups=()) -> Genome:
         train_window=trial.suggest_categorical("train_window", [252, 378, 504]),
         retrain_every=trial.suggest_categorical("retrain_every", [10, 21, 42]),
         smooth=trial.suggest_categorical("smooth", [1, 2, 3, 5, 8]),
-        entry=trial.suggest_float("entry", 0.02, 0.4, log=True),
+        entry=trial.suggest_float("entry", 0.01, 0.15, log=True),
         max_leverage=trial.suggest_categorical("max_leverage", [0.5, 1.0, 1.5]),
         n_estimators=trial.suggest_categorical("n_estimators", [150, 300, 500]),
         learning_rate=trial.suggest_categorical("learning_rate", [0.02, 0.05, 0.1]),
@@ -50,6 +50,7 @@ def optimize(panel, n_trials=40, seed=42, cost_bps=10.0, storage=None,
             for k in ("sharpe", "sortino", "max_drawdown", "cagr", "hit_rate", "exposure"):
                 trial.set_user_attr(k, float(m[k]))
             score = m["sharpe"] - 0.5 * abs(m["max_drawdown"])
+            score += 0.3 * min(m["exposure"], 0.4)
             return float(score - (0.5 if m["exposure"] < 0.05 else 0))
         except Exception:
             return -999.0
