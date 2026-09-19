@@ -192,7 +192,9 @@ def run(config_path="universe.json", force_evolve=False, no_trade=False) -> dict
         m = macro.iloc[-1]
         out["regime"] = _clean({"vix": round(float(m.get("vix_lvl", np.nan)), 2),
                                 "vix_z": round(float(m.get("vix_z", np.nan)), 2),
-                                "spy_ret21": round(float(m.get("spy_ret21", np.nan)), 4)})
+                                "spy_ret21": round(float(m.get("spy_ret21", np.nan)), 4),
+                                "usdidr": round(float(m.get("usdidr_lvl", np.nan)), 1),
+                                "usdidr_chg5": round(float(m.get("usdidr_chg5", np.nan)), 4)})
     json.dump(out, open(os.path.join(s.data_dir, "latest_signals.json"), "w"),
               indent=2, default=str)
     journal.log(jpath, "signals", out["signals"])
