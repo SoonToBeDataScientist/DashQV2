@@ -70,7 +70,10 @@ def _yf_bars(sym: str, start, end, interval: str):
 
 def get_daily_bars(symbols, asset_map, start, end, s: Settings) -> dict:
     out = {}
-    stocks = [x for x in symbols if asset_map.get(x) == "stock"]
+    # Alpaca only covers US-listed stocks + majors crypto — anything with an exchange suffix
+    # (e.g. ".JK" for IDX) has zero Alpaca coverage, so keep it out of that batch entirely
+    # rather than risk it degrading the US-symbol request if Alpaca doesn't skip unknowns cleanly.
+    stocks = [x for x in symbols if asset_map.get(x) == "stock" and "." not in x]
     cryptos = [x for x in symbols if asset_map.get(x) == "crypto"]
     if has_alpaca(s):
         try:
@@ -154,7 +157,7 @@ def get_latest_price(sym, asset_class, s: Settings) -> float:
 FRED_SERIES = {"vix": "VIXCLS", "us10y": "DGS10", "yc_spread": "T10Y2Y",
                "unrate": "UNRATE", "consumer_sent": "UMCSENT", "oil": "DCOILWTICO"}
 YF_MACRO = {"vix": "^VIX", "us10y": "^TNX", "dxy": "DX-Y.NYB",
-            "spy": "SPY", "gold": "GLD", "oil": "USO"}
+            "spy": "SPY", "gold": "GLD", "oil": "USO", "usdidr": "USDIDR=X"}
 
 
 def _fred_macro(start, key) -> pd.DataFrame:
@@ -170,6 +173,16 @@ def _fred_macro(start, key) -> pd.DataFrame:
                                     for o in obs if o["value"] != "."})
         except Exception:
             continue
+    for name, tick in YF_MACRO.items():          # daily series FRED doesn't have (e.g. usdidr)
+        if name not in cols:
+            try:
+                df = _yf_bars(tick, start, None, "1d")
+                if df is not None and not df.empty:
+                    ser = df["Close"] if "Close" in df else df["close"]
+                    ser.index = pd.to_datetime(ser.index).normalize()
+                    cols[name] = ser
+            except Exception:
+                pass
     return pd.DataFrame(cols)
 
 
@@ -209,6 +222,9 @@ def get_macro(start, s: Settings) -> pd.DataFrame:
     out["dxy_chg5"] = g("dxy").pct_change(5)
     out["unrate"] = g("unrate")
     out["cons_sent"] = g("consumer_sent")
+    out["usdidr_lvl"] = g("usdidr")
+    out["usdidr_chg5"] = g("usdidr").pct_change(5)
+    out["usdidr_chg21"] = g("usdidr").pct_change(21)
     return out
 
 
