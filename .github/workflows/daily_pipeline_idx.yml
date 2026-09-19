@@ -1,0 +1,49 @@
+name: daily-pipeline-idx
+on:
+  schedule:
+    - cron: "0 9 * * 1-5"        # 09:00 UTC = 16:00 WIB, after IDX close (~15:00-15:15 WIB), Mon-Fri
+  workflow_dispatch:
+    inputs:
+      evolve:
+        description: "Force the Strategy Lab to search + evolve now (ignores weekday schedule)"
+        type: boolean
+        default: false
+permissions:
+  contents: write
+concurrency:
+  group: dashqv2-pipeline-state-idx   # separate mutex from the US pipeline — they touch different files anyway
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run IDX pipeline (signal + forward-test only, no execution)
+        env:
+          DATA_DIR: "data_idx"
+          MODEL_DIR: "models_idx"
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          SENTIMENT_BACKEND: "vader"
+        run: |
+          ARGS="--config universe_idx.json --no-trade"
+          if [ "${{ github.event.inputs.evolve }}" = "true" ]; then
+            ARGS="$ARGS --evolve"
+          fi
+          python -m src.pipeline $ARGS
+      - name: Commit IDX artifacts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          for f in data_idx/latest_signals.json data_idx/snapshots.csv data_idx/journal.db \
+                   models_idx/champion_genome.json models_idx/champion.joblib \
+                   models_idx/champion_genome.prev.json models_idx/champion.prev.joblib; do
+            git add "$f" 2>/dev/null || true
+          done
+          git diff --cached --quiet || git commit -m "chore: idx pipeline artifacts [skip ci]"
+          git pull --rebase origin main || true
+          git push
