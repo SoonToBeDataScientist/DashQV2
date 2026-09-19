@@ -96,20 +96,24 @@ def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=Non
     champ_score = cm["sharpe"] - 0.5 * abs(cm["max_drawdown"])
     challenger = rows[0]
     min_score = evo.get("promote_min_score", 0.0)
+    min_exposure = evo.get("promote_min_exposure", 0.10)
     event = {"trigger": trigger, "seed": seed, "champion": genome.name,
              "champion_score": round(champ_score, 3),
              "champion_live_ic": (round(live_ic, 3) if live_ic is not None else None),
              "champion_live_obs": n_obs,
-             "challenger": challenger["name"], "challenger_score": challenger["score"]}
+             "challenger": challenger["name"], "challenger_score": challenger["score"],
+             "challenger_exposure": challenger.get("exposure")}
+    ch_exposure = challenger.get("exposure") or 0.0
     if (challenger["score"] > champ_score + evo.get("promote_margin", 0.05)
-            and challenger["score"] > min_score):
+            and challenger["score"] > min_score and ch_exposure >= min_exposure):
         g = challenger["genome"]
         save_champion(s, g, models.train_final_model(panel, g))
         event["promoted"] = g.name
     else:
         event["promoted"] = None
-        event["promote_blocked_reason"] = ("below promote_min_score"
-            if challenger["score"] <= min_score else None)
+        event["promote_blocked_reason"] = (
+            "below promote_min_score" if challenger["score"] <= min_score else
+            "below promote_min_exposure" if ch_exposure < min_exposure else None)
     journal.log(jpath, "evolution", event)
     return event
 
