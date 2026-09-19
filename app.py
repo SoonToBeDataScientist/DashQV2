@@ -24,6 +24,11 @@ SNAP_PATH = os.path.join(DATA_DIR, "snapshots.csv")
 CHAMPION_PATH = os.path.join(settings.model_dir, "champion.joblib")
 CHAMPION_JSON = os.path.join(settings.model_dir, "champion_genome.json")
 
+IDX_DATA_DIR = "data_idx"
+IDX_JOURNAL_PATH = os.path.join(IDX_DATA_DIR, "journal.db")
+IDX_MODEL_DIR = "models_idx"
+IDX_CHAMPION_JSON = os.path.join(IDX_MODEL_DIR, "champion_genome.json")
+
 
 # ---------------------------------------------------------------- helpers
 def sig_label(v: float) -> str:
@@ -134,9 +139,9 @@ try:
 except Exception:
     pass
 
-tab_daily, tab_live, tab_lab, tab_bt, tab_paper, tab_auto = st.tabs(
+tab_daily, tab_live, tab_lab, tab_bt, tab_paper, tab_auto, tab_idx = st.tabs(
     ["📊 Daily Signals", "⚡ Realtime", "🧬 Strategy Lab", "📈 Backtest",
-     "💸 Paper Trading", "🤖 Automation"])
+     "💸 Paper Trading", "🤖 Automation", "🇮🇩 IDX"])
 
 # ================================================================ DAILY
 with tab_daily:
@@ -532,3 +537,98 @@ with tab_auto:
     else:
         st.info(f"Only {rep.get('n', 0)} matured observations so far — "
                 "the scheduler/pipeline accumulates them daily.")
+
+
+# ================================================================ IDX
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_idx_closes(symbols, start, end):
+    am = {s: "stock" for s in symbols}
+    bars = datafeed.get_daily_bars(symbols, am, start, end, settings)
+    return pd.DataFrame({k: v["close"] for k, v in bars.items() if not v.empty})
+
+
+with tab_idx:
+    st.caption("Universe terpisah (15 saham bluechip IDX), pipeline terpisah "
+               "(`daily-pipeline-idx`, setelah BEI tutup), state terpisah (`data_idx/`, `models_idx/`). "
+               "**Baru signal + forward-test — belum ada eksekusi/broker.**")
+
+    idx_latest, idx_latest_ts, idx_genome_name, idx_regime = pd.Series(dtype=float), None, "base", {}
+    idx_latest_path = os.path.join(IDX_DATA_DIR, "latest_signals.json")
+    if os.path.exists(idx_latest_path):
+        try:
+            d = json.load(open(idx_latest_path))
+            idx_latest = pd.Series(d.get("signals", {}), dtype=float)
+            idx_latest_ts, idx_genome_name = d.get("ts"), d.get("genome", "base")
+            idx_regime = d.get("regime", {})
+        except Exception:
+            pass
+
+    if idx_latest.empty:
+        st.warning("Belum ada output dari `daily-pipeline-idx` — trigger manual dari tab Actions, "
+                   "atau tunggu jadwalnya (16:00 WIB, hari kerja).")
+        st.stop()
+
+    st.caption(f"Strategi aktif: **{idx_genome_name}**"
+               + ("" if os.path.exists(IDX_CHAMPION_JSON) else " · *(genome default — belum ada promosi)*")
+               + (f" · terakhir dihitung {idx_latest_ts}" if idx_latest_ts else ""))
+
+    if idx_regime:
+        c = st.columns(4)
+        c[0].metric("VIX", f"{idx_regime.get('vix', float('nan')):.1f}")
+        c[1].metric("SPY 21d", f"{idx_regime.get('spy_ret21', 0) or 0:+.1%}")
+        usdidr = idx_regime.get("usdidr")
+        c[2].metric("USD/IDR", f"{usdidr:,.0f}" if usdidr else "—",
+                    f"{idx_regime['usdidr_chg5']:+.1%}" if idx_regime.get("usdidr_chg5") is not None else None)
+        c[3].metric("Universe", f"{len(idx_latest.dropna())} saham")
+
+    st.markdown("### Sinyal terbaru")
+    idx_nonan = idx_latest.dropna().sort_values()
+    cols = st.columns(min(5, max(1, len(idx_nonan))))
+    for i, (sym, v) in enumerate(idx_nonan.items()):
+        with cols[i % len(cols)]:
+            st.plotly_chart(gauge(sym.replace(".JK", ""), float(v)), use_container_width=True)
+            st.markdown(f"<p style='text-align:center'>{sig_label(v)}</p>", unsafe_allow_html=True)
+    st.dataframe(pd.DataFrame({"signal": idx_nonan, "action": idx_nonan.map(sig_label)})
+                 .style.format({"signal": "{:+.3f}"}), use_container_width=True)
+
+    st.markdown("### Histori sinyal (beberapa hari terakhir)")
+    idx_hist = pd.DataFrame()
+    try:
+        idx_jdf = journal.read(IDX_JOURNAL_PATH, kind="signals", limit=500)
+        if not idx_jdf.empty:
+            recs = [{"date": pd.Timestamp(ts).tz_localize(None), **json.loads(p)}
+                    for ts, p in zip(idx_jdf["ts"], idx_jdf["payload"])]
+            idx_hist = pd.DataFrame(recs).set_index("date").sort_index()
+    except Exception:
+        pass
+    if idx_hist.empty or len(idx_hist) < 2:
+        st.caption("Masih sedikit data — grafik ini terisi tiap hari pipeline-nya jalan.")
+    else:
+        fig = px.imshow(idx_hist.tail(90).T, color_continuous_scale="RdYlGn", zmin=-1, zmax=1,
+                        aspect="auto", labels=dict(color="signal"))
+        fig.update_layout(height=280, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("### Forward-test (IC)")
+    try:
+        idx_jdf_full = journal.read(IDX_JOURNAL_PATH, limit=10000)
+        idx_events = forwardtest.signal_events(idx_jdf_full)
+        idx_start = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(days=400)
+        idx_end = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+        idx_closes = load_idx_closes(tuple(idx_latest.index), idx_start, idx_end)
+        idx_genome_horizon = 5
+        if os.path.exists(IDX_CHAMPION_JSON):
+            idx_genome_horizon = json.load(open(IDX_CHAMPION_JSON)).get("horizon", 5)
+        idx_rep = forwardtest.report(idx_events, idx_closes, horizon=idx_genome_horizon)
+        if idx_rep.get("n", 0) >= 10:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Observasi matang", idx_rep["n"])
+            c2.metric("Information coefficient", f"{idx_rep['ic']:.3f}")
+            verdict = ("✅ edge positif" if idx_rep["ic"] > 0.02 else
+                      ("❌ negatif" if idx_rep["ic"] < -0.02 else "⏳ belum jelas"))
+            c3.metric("Kesimpulan", verdict)
+        else:
+            st.caption(f"Baru {idx_rep.get('n', 0)} observasi matang — belum cukup buat IC yang berarti "
+                       "(butuh beberapa minggu pipeline jalan tiap hari).")
+    except Exception as e:
+        st.caption(f"Belum bisa hitung forward-test IC: {e}")
