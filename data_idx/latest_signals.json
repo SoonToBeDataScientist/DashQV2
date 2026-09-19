@@ -1,0 +1,43 @@
+{
+  "ts": "2026-09-19T08:02:44.793221+00:00",
+  "symbols": [
+    "BBCA.JK",
+    "BBRI.JK",
+    "BMRI.JK",
+    "BBNI.JK",
+    "TLKM.JK",
+    "ASII.JK",
+    "UNVR.JK",
+    "ICBP.JK",
+    "KLBF.JK",
+    "SMGR.JK",
+    "ANTM.JK",
+    "PGAS.JK",
+    "INDF.JK",
+    "UNTR.JK",
+    "EXCL.JK"
+  ],
+  "genome": "base",
+  "signals": {
+    "ANTM.JK": -0.2805,
+    "ASII.JK": -0.1386,
+    "BBCA.JK": -0.0,
+    "BBNI.JK": -0.0716,
+    "BBRI.JK": -0.1707,
+    "BMRI.JK": -0.0993,
+    "EXCL.JK": -0.0809,
+    "ICBP.JK": -0.0779,
+    "INDF.JK": -0.0909,
+    "KLBF.JK": -0.0142,
+    "PGAS.JK": -0.0,
+    "SMGR.JK": -0.3678,
+    "TLKM.JK": -0.087,
+    "UNTR.JK": -0.1881,
+    "UNVR.JK": -0.0
+  },
+  "regime": {
+    "vix": 15.44,
+    "vix_z": -0.53,
+    "spy_ret21": -0.0028
+  }
+}
