@@ -51,7 +51,7 @@ def random_genome(rng, name="", exclude_groups=()) -> Genome:
                   use_sentiment=bool(rng.random() < 0.6),
                   horizon=int(pick([3, 5, 10])), train_window=int(pick([252, 378, 504])),
                   retrain_every=int(pick([10, 21, 42])), smooth=int(pick([1, 2, 3, 5, 8])),
-                  entry=float(np.round(rng.uniform(0.05, 0.35), 3)),
+                  entry=float(np.round(rng.uniform(0.02, 0.15), 3)),
                   max_leverage=float(pick([0.5, 1.0, 1.5])),
                   n_estimators=int(pick([150, 300])),
                   learning_rate=float(pick([0.02, 0.05, 0.1])),
@@ -235,6 +235,7 @@ def evolve(panel: pd.DataFrame, pop_size=10, generations=4, seed=42,
                 m = run_backtest(prices, sig, fee_bps=cost_bps / 2,
                                  slippage_bps=cost_bps / 2, max_leverage=g.max_leverage).metrics
                 score = m["sharpe"] - 0.5 * abs(m["max_drawdown"])
+                score += 0.3 * min(m["exposure"], 0.4)   # reward being active, capped so it can't dominate
                 if m["exposure"] < 0.05:
                     score -= 0.5
                 cache[g.key()] = (float(score), m)
