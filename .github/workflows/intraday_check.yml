@@ -1,7 +1,9 @@
 name: intraday-check
+# Manual only. The live IC is built from DAILY signals and closes with a multi-day horizon, so it
+# changes at most once a day — and the daily pipeline already runs this same IC-panic check. On a
+# 30-minute schedule it was 16 identical runs per weekday (and it can't fire at all until the
+# forward test has ic_min_obs matured observations). Kept for an on-demand check.
 on:
-  schedule:
-    - cron: "*/30 13-20 * * 1-5"   # every 30 min, ~US market hours, Mon-Fri (UTC)
   workflow_dispatch:
 permissions:
   contents: write

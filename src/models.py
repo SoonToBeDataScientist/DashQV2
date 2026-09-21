@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 import numpy as np
 import pandas as pd
 
-from .backtest import run_backtest
+from .backtest import fitness, run_backtest
 from .features import FEATURE_GROUPS, feature_columns
 
 try:
@@ -41,21 +41,31 @@ class Genome:
         return json.dumps(d, sort_keys=True)
 
 
+# "macro" and "sentiment" aren't FEATURE_GROUPS but can be excluded the same way — e.g.
+# sentiment while its accumulated history is still too short to train on.
+def _allowed(genome_dict: dict, exclude_groups) -> dict:
+    for k in ("macro", "sentiment"):
+        if k in exclude_groups:
+            genome_dict[f"use_{k}"] = False
+    return genome_dict
+
+
 def random_genome(rng, name="", exclude_groups=()) -> Genome:
     eligible = [g for g in FEATURE_GROUPS if g not in exclude_groups]
     groups = [g for g in eligible if rng.random() < 0.6] or ["momentum"]
     pick = lambda opts: opts[int(rng.integers(len(opts)))]
-    return Genome(name=name, model_type=pick(["lgbm", "lgbm", "hgb", "rf"]),
-                  feature_groups=tuple(groups),
-                  use_macro=bool(rng.random() < 0.7),
-                  use_sentiment=bool(rng.random() < 0.6),
-                  horizon=int(pick([3, 5, 10])), train_window=int(pick([252, 378, 504])),
-                  retrain_every=int(pick([10, 21, 42])), smooth=int(pick([1, 2, 3, 5, 8])),
-                  entry=float(np.round(rng.uniform(0.02, 0.15), 3)),
-                  max_leverage=float(pick([0.5, 1.0, 1.5])),
-                  n_estimators=int(pick([150, 300])),
-                  learning_rate=float(pick([0.02, 0.05, 0.1])),
-                  max_depth=int(pick([3, 4, 5, 6])))
+    return Genome(**_allowed(dict(
+        name=name, model_type=pick(["lgbm", "lgbm", "hgb", "rf"]),
+        feature_groups=tuple(groups),
+        use_macro=bool(rng.random() < 0.7),
+        use_sentiment=bool(rng.random() < 0.6),
+        horizon=int(pick([3, 5, 10])), train_window=int(pick([252, 378, 504])),
+        retrain_every=int(pick([10, 21, 42])), smooth=int(pick([1, 2, 3, 5, 8])),
+        entry=float(np.round(rng.uniform(0.02, 0.15), 3)),
+        max_leverage=float(pick([0.5, 1.0, 1.5])),
+        n_estimators=int(pick([150, 300])),
+        learning_rate=float(pick([0.02, 0.05, 0.1])),
+        max_depth=int(pick([3, 4, 5, 6]))), exclude_groups))
 
 
 def crossover(a: Genome, b: Genome, rng) -> Genome:
@@ -90,7 +100,7 @@ def mutate(g: Genome, rng, exclude_groups=()) -> Genome:
             d[k] = not d[k]
     if rng.random() < 0.2:
         d["model_type"] = pick(["lgbm", "hgb", "rf"])
-    return Genome(**d)
+    return Genome(**_allowed(d, exclude_groups))
 
 
 # ---------------------------------------------------------------- model
@@ -217,28 +227,39 @@ def recent_signals(panel: pd.DataFrame, genome: Genome, model: SignalModel,
 
 
 # ---------------------------------------------------------------- evolution
+def market_frames(panel: pd.DataFrame):
+    """(closes, opens) date x symbol from a panel; opens is None for panels built without it."""
+    pv = lambda col: panel.pivot_table(index="date", columns="symbol", values=col).sort_index()
+    return pv("close").ffill(), (pv("open") if "open" in panel else None)
+
+
+def score_genome(panel: pd.DataFrame, g: Genome, cost_bps: float, exec_open=(), sizing="equal",
+                 frames=None):
+    """Walk-forward backtest of one genome -> (fitness, metrics). The one evaluation path used
+    for challengers AND the sitting champion."""
+    prices, opens = frames or market_frames(panel)
+    sig, _ = walk_forward_signals(panel, g)
+    if sig.empty:
+        raise ValueError("no signals")
+    m = run_backtest(prices, sig, fee_bps=cost_bps / 2, slippage_bps=cost_bps / 2,
+                     max_leverage=g.max_leverage, opens=opens, exec_open=exec_open,
+                     sizing=sizing).metrics
+    return fitness(m), m
+
+
 def evolve(panel: pd.DataFrame, pop_size=10, generations=4, seed=42,
-           cost_bps=10.0, progress=None, exclude_groups=()):
-    """Genetic search. Fitness = Sharpe - 0.5*|MaxDD| on walk-forward backtest.
+           cost_bps=10.0, progress=None, exclude_groups=(), exec_open=(), sizing="equal"):
+    """Genetic search, ranked by backtest.fitness on a walk-forward backtest.
     exclude_groups: feature groups withheld from the search space (e.g. options/short/onchain
     while their real snapshot history is still too short to be meaningful)."""
     rng = np.random.default_rng(seed)
-    prices = panel.pivot_table(index="date", columns="symbol", values="close").sort_index().ffill()
+    frames = market_frames(panel)
     cache: dict = {}
 
     def evaluate(g: Genome):
         if g.key() not in cache:
             try:
-                sig, _ = walk_forward_signals(panel, g)
-                if sig.empty:
-                    raise ValueError("no signals")
-                m = run_backtest(prices, sig, fee_bps=cost_bps / 2,
-                                 slippage_bps=cost_bps / 2, max_leverage=g.max_leverage).metrics
-                score = m["sharpe"] - 0.5 * abs(m["max_drawdown"])
-                score += 0.3 * min(m["exposure"], 0.4)   # reward being active, capped so it can't dominate
-                if m["exposure"] < 0.05:
-                    score -= 0.5
-                cache[g.key()] = (float(score), m)
+                cache[g.key()] = score_genome(panel, g, cost_bps, exec_open, sizing, frames)
             except Exception:
                 cache[g.key()] = (-999.0, {})
         return cache[g.key()]

@@ -12,6 +12,7 @@ from apscheduler.triggers.cron import CronTrigger
 from src import datafeed, exodata, journal, models
 from src.config import load_settings
 from src.features import build_live_row, feature_columns
+from src.pipeline import _sentiment, _universe
 from src.pipeline import run as run_pipeline
 
 CONFIG = os.environ.get("UNIVERSE_CONFIG", "universe.json")
@@ -29,7 +30,7 @@ def safe(fn, name):
 
 
 def daily_job():
-    safe(lambda: run_pipeline(CONFIG), "daily")
+    safe(lambda: run_pipeline(CONFIG, skip_if_done=True), "daily")
 
 
 def realtime_snapshot_job():
@@ -37,9 +38,7 @@ def realtime_snapshot_job():
     def _run():
         s = load_settings()
         cfg = json.load(open(CONFIG))
-        stocks, cryptos = cfg.get("stocks", []), cfg.get("cryptos", [])
-        symbols = stocks + cryptos
-        asset_map = {**{x: "stock" for x in stocks}, **{x: "crypto" for x in cryptos}}
+        _, _, symbols, asset_map = _universe(cfg)
         bundle = models.load_bundle(os.path.join(s.model_dir, "champion.joblib"))
         if not bundle:
             return
@@ -53,8 +52,7 @@ def realtime_snapshot_job():
         start = dt.datetime.utcnow() - dt.timedelta(days=400)
         bars = datafeed.get_daily_bars(symbols, asset_map, start, dt.datetime.utcnow(), s)
         macro = datafeed.get_macro(start, s)
-        sent = datafeed.get_news_sentiment(symbols, s,
-                                           backend=cfg.get("sentiment_backend", "auto"), days=10)
+        sent, _, _ = _sentiment(cfg, s, symbols, update=False)   # the daily run keeps the store fresh
         exo = exodata.get_exo(start, os.path.join(s.data_dir, "snapshots.csv"))
         payload = {}
         for sym, df in bars.items():

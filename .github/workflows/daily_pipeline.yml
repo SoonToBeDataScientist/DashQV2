@@ -1,13 +1,25 @@
 name: daily-pipeline
 on:
   schedule:
-    - cron: "30 21 * * *"        # daily, 21:30 UTC (after US close)
+    # GitHub cron is best-effort: runs have landed 1.5-2.5 h late. Off-round minutes queue a bit
+    # faster; the pipeline dates every run by its trading SESSION (not the UTC clock), and the
+    # backup cron re-runs only if the main one never produced an after-close run (--skip-if-done).
+    - cron: "37 21 * * *"        # main, after the US close
+    - cron: "23 1 * * *"         # backup, same session (before the next US open)
   workflow_dispatch:
     inputs:
       evolve:
         description: "Force the Strategy Lab to search + evolve now (ignores weekday schedule)"
         type: boolean
         default: false
+      trade:
+        description: "Rebalance the paper account"
+        type: boolean
+        default: true
+      promote_genome:
+        description: "Genome JSON to install as champion first (sent by the Streamlit Lab)"
+        type: string
+        default: ""
 permissions:
   contents: write
 concurrency:
@@ -23,6 +35,13 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
+      - name: Restore daily-bar cache (only the last few days get downloaded)
+        uses: actions/cache@v4
+        with:
+          path: .cache/bars
+          key: bars-v1-${{ github.workflow }}-${{ github.run_id }}
+          restore-keys: |
+            bars-v1-${{ github.workflow }}-
       - name: Run pipeline
         env:
           APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
@@ -30,17 +49,22 @@ jobs:
           APCA_PAPER: "true"
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           SENTIMENT_BACKEND: "vader"
+          BARS_CACHE_DIR: ".cache/bars"
+          EVENT: ${{ github.event_name }}
+          EVOLVE: ${{ github.event.inputs.evolve }}
+          TRADE: ${{ github.event.inputs.trade }}
+          PROMOTE_GENOME: ${{ github.event.inputs.promote_genome }}
         run: |
           ARGS="--config universe.json"
-          if [ "${{ github.event.inputs.evolve }}" = "true" ]; then
-            ARGS="$ARGS --evolve"
-          fi
-          python -m src.pipeline $ARGS
+          if [ "$EVENT" = "schedule" ]; then ARGS="$ARGS --skip-if-done"; fi
+          if [ "$EVOLVE" = "true" ]; then ARGS="$ARGS --evolve"; fi
+          if [ "$TRADE" = "false" ]; then ARGS="$ARGS --no-trade"; fi
+          python -m src.pipeline $ARGS --promote-genome "$PROMOTE_GENOME"
       - name: Commit artifacts
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          for f in data/latest_signals.json data/snapshots.csv data/journal.db \
+          for f in data/latest_signals.json data/snapshots.csv data/journal.db data/sentiment.csv \
                    models/champion_genome.json models/champion.joblib \
                    models/champion_genome.prev.json models/champion.prev.joblib; do
             git add "$f" 2>/dev/null || true

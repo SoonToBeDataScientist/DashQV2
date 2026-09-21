@@ -26,7 +26,8 @@ def _yf_close(tick, start) -> pd.Series:
 # ---- options-market history (backtestable immediately: ^VIX ^VXV ^VVIX ^SKEW) ----
 def options_market_history(start) -> pd.DataFrame:
     df = pd.DataFrame({k: _yf_close(t, start) for k, t in
-                       {"vix": "^VIX", "vxv": "^VXV", "vvix": "^VVIX", "skew": "^SKEW"}.items()}).ffill()
+                       {"vix": "^VIX", "vxv": "^VIX3M", "vvix": "^VVIX", "skew": "^SKEW"}.items()}).ffill()
+    # (^VXV was renamed ^VIX3M; the old ticker returns nothing, which silently zeroed vix_ts)
     if df.empty or df["vix"].dropna().empty:
         return pd.DataFrame()
     out = pd.DataFrame(index=df.index)

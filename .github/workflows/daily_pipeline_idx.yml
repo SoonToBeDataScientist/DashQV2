@@ -1,7 +1,8 @@
 name: daily-pipeline-idx
 on:
   schedule:
-    - cron: "0 9 * * 1-5"        # 09:00 UTC = 16:00 WIB, after IDX close (~15:00-15:15 WIB), Mon-Fri
+    - cron: "7 9 * * 1-5"        # 16:07 WIB, after the IDX close, Mon-Fri
+    - cron: "41 11 * * 1-5"      # backup, same session; skipped if the main run already logged
   workflow_dispatch:
     inputs:
       evolve:
@@ -23,17 +24,26 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
+      - name: Restore daily-bar cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/bars
+          key: bars-v1-${{ github.workflow }}-${{ github.run_id }}
+          restore-keys: |
+            bars-v1-${{ github.workflow }}-
       - name: Run IDX pipeline (signal + forward-test only, no execution)
         env:
           DATA_DIR: "data_idx"
           MODEL_DIR: "models_idx"
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           SENTIMENT_BACKEND: "vader"
+          BARS_CACHE_DIR: ".cache/bars"
+          EVENT: ${{ github.event_name }}
+          EVOLVE: ${{ github.event.inputs.evolve }}
         run: |
           ARGS="--config universe_idx.json --no-trade"
-          if [ "${{ github.event.inputs.evolve }}" = "true" ]; then
-            ARGS="$ARGS --evolve"
-          fi
+          if [ "$EVENT" = "schedule" ]; then ARGS="$ARGS --skip-if-done"; fi
+          if [ "$EVOLVE" = "true" ]; then ARGS="$ARGS --evolve"; fi
           python -m src.pipeline $ARGS
       - name: Commit IDX artifacts
         run: |

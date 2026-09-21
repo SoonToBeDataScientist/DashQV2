@@ -10,3 +10,4 @@ data/optuna.db
 #   data/latest_signals.json, data/snapshots.csv, data/journal.db,
 #   models/champion_genome.json, models/champion.joblib,
 #   models/champion_genome.prev.json, models/champion.prev.joblib, universe.json
+.cache/

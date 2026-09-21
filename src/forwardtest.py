@@ -35,12 +35,19 @@ def signal_events(journal_df) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def report(events, closes, horizon=5, rolling=250) -> dict:
-    """Live forward test: do recorded signals predict subsequent returns?"""
+def report(events, closes, horizon=5, rolling=250, session_cfg=None) -> dict:
+    """Live forward test: do recorded signals predict subsequent returns?
+    session_cfg: universe config whose "session" decides which trading day a run belongs to —
+    a run logged at 00:40 UTC is still the previous US session, so its base price must be that
+    session's close, not the next one's. None = plain UTC calendar date."""
     if events is None or events.empty:
         return {}
     ev = events.dropna(subset=["signal"]).copy()
-    ev["date"] = ev["ts"].dt.normalize()
+    if session_cfg is None:
+        ev["date"] = ev["ts"].dt.normalize()
+    else:
+        from .session import session_dates
+        ev["date"] = session_dates(session_cfg, ev["ts"]).values
     ev = ev.groupby(["date", "symbol"], as_index=False)["signal"].mean()
     recs, closes = [], closes.sort_index()
     for r in ev.itertuples():

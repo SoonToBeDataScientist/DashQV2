@@ -6,9 +6,12 @@ services:
     ports:
       - "8501:8501"
     env_file: [.env]
+    environment:
+      - BARS_CACHE_DIR=.cache/bars
     volumes:
       - ./data:/app/data
       - ./models:/app/models
+      - ./.cache:/app/.cache
       - ./universe.json:/app/universe.json:ro
     restart: unless-stopped
 
@@ -20,8 +23,10 @@ services:
     env_file: [.env]
     environment:
       - UNIVERSE_CONFIG=universe.json
+      - BARS_CACHE_DIR=.cache/bars
     volumes:
       - ./data:/app/data
       - ./models:/app/models
+      - ./.cache:/app/.cache
       - ./universe.json:/app/universe.json:ro
     restart: unless-stopped

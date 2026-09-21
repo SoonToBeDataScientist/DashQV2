@@ -1,16 +1,18 @@
 {
   "stocks": ["AAPL", "MSFT", "NVDA", "SPY"],
   "cryptos": ["BTC/USD", "ETH/USD"],
+  "session": {"tz": "America/New_York", "open": "09:30", "close": "16:00"},
+  "snapshot_symbols": ["AAPL", "MSFT", "NVDA", "SPY", "BTC/USD", "ETH/USD"],
   "years": 4,
   "fee_bps": 2,
   "slippage_bps": 5,
   "allow_short": false,
+  "sizing": "equal",
   "trade": true,
   "sentiment_backend": "auto",
   "evolution": { "enabled": true, "weekday": 5, "eval_years": 2,
-                 "method": "evolution", "pop_size": 16, "generations": 4, "trials": 25,
-                 "promote_margin": 0.05, "promote_min_score": 0.0,
-                 "exclude_feature_groups": ["options", "short", "onchain"],
-                 "ic_panic_threshold": -0.02, "ic_min_obs": 60,
-                 "intraday_reaction": true }
+                 "method": "evolution", "pop_size": 16, "generations": 4,
+                 "trials": 25, "promote_margin": 0.05, "promote_min_score": 0.0,
+                 "exclude_feature_groups": ["options", "short", "onchain"], "ic_panic_threshold": -0.02, "ic_min_obs": 60,
+                 "intraday_reaction": true, "sentiment_min_days": 730 }
 }
