@@ -129,6 +129,7 @@ def build_panel(bars: dict, macro, sent, genome, exo=None) -> pd.DataFrame:
         f = technical_features(df)
         f = _join_extras(f, sym, macro, sent, genome, exo)
         f["close"] = df["close"]
+        f["open"] = df["open"]                  # next-open execution in the backtest
         for h in HORIZONS:
             f[f"target_{h}"] = df["close"].shift(-h) / df["close"] - 1
         f["symbol"] = sym

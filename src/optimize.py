@@ -5,9 +5,8 @@ from dataclasses import asdict
 import numpy as np
 import pandas as pd
 
-from .backtest import run_backtest
 from .features import FEATURE_GROUPS
-from .models import Genome, walk_forward_signals
+from .models import Genome, market_frames, score_genome
 
 
 def _suggest(trial, exclude_groups=()) -> Genome:
@@ -16,8 +15,9 @@ def _suggest(trial, exclude_groups=()) -> Genome:
     return Genome(
         name=f"T{trial.number}", feature_groups=tuple(groups or ["momentum"]),
         model_type=trial.suggest_categorical("model_type", ["lgbm", "hgb", "rf"]),
-        use_macro=bool(trial.suggest_categorical("use_macro", [0, 1])),
-        use_sentiment=bool(trial.suggest_categorical("use_sentiment", [0, 1])),
+        use_macro="macro" not in exclude_groups and bool(trial.suggest_categorical("use_macro", [0, 1])),
+        use_sentiment=("sentiment" not in exclude_groups
+                       and bool(trial.suggest_categorical("use_sentiment", [0, 1]))),
         horizon=trial.suggest_categorical("horizon", [3, 5, 10]),
         train_window=trial.suggest_categorical("train_window", [252, 378, 504]),
         retrain_every=trial.suggest_categorical("retrain_every", [10, 21, 42]),
@@ -30,10 +30,11 @@ def _suggest(trial, exclude_groups=()) -> Genome:
 
 
 def optimize(panel, n_trials=40, seed=42, cost_bps=10.0, storage=None,
-             study_name="adaptive-trader", timeout=None, progress=None, exclude_groups=()):
+             study_name="adaptive-trader", timeout=None, progress=None, exclude_groups=(),
+             exec_open=(), sizing="equal"):
     import optuna
     optuna.logging.set_verbosity(optuna.logging.WARNING)
-    prices = panel.pivot_table(index="date", columns="symbol", values="close").sort_index().ffill()
+    frames = market_frames(panel)
     study = optuna.create_study(direction="maximize",
                                 sampler=optuna.samplers.TPESampler(seed=seed, multivariate=True),
                                 storage=storage, study_name=study_name, load_if_exists=True)
@@ -42,16 +43,10 @@ def optimize(panel, n_trials=40, seed=42, cost_bps=10.0, storage=None,
         g = _suggest(trial, exclude_groups)
         trial.set_user_attr("genome", asdict(g))
         try:
-            sig, _ = walk_forward_signals(panel, g)
-            if sig.empty:
-                return -999.0
-            m = run_backtest(prices, sig, fee_bps=cost_bps / 2, slippage_bps=cost_bps / 2,
-                             max_leverage=g.max_leverage).metrics
+            score, m = score_genome(panel, g, cost_bps, exec_open, sizing, frames)
             for k in ("sharpe", "sortino", "max_drawdown", "cagr", "hit_rate", "exposure"):
                 trial.set_user_attr(k, float(m[k]))
-            score = m["sharpe"] - 0.5 * abs(m["max_drawdown"])
-            score += 0.3 * min(m["exposure"], 0.4)
-            return float(score - (0.5 if m["exposure"] < 0.05 else 0))
+            return score
         except Exception:
             return -999.0
 

@@ -25,6 +25,7 @@ class Settings:
     sentiment_backend: str = "auto"
     data_dir: str = "data"
     model_dir: str = "models"
+    bars_cache_dir: str = ""                   # incremental daily-bar cache (CI: actions/cache)
 
 
 def load_settings() -> Settings:
@@ -36,4 +37,5 @@ def load_settings() -> Settings:
         sentiment_backend=get_secret("SENTIMENT_BACKEND", "auto"),
         data_dir=get_secret("DATA_DIR", "data"),
         model_dir=get_secret("MODEL_DIR", "models"),
+        bars_cache_dir=get_secret("BARS_CACHE_DIR", ""),
     )

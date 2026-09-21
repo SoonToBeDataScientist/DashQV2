@@ -11,7 +11,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from src import backtest, datafeed, exodata, features, forwardtest, journal, models, optimize
+from src import backtest, datafeed, exodata, features, forwardtest, ghactions, journal, models, optimize
 from src.config import load_settings
 from src.features import FEATURE_GROUPS, build_live_row, build_panel
 from src.models import Genome
@@ -21,6 +21,7 @@ settings = load_settings()
 DATA_DIR = settings.data_dir
 JOURNAL_PATH = os.path.join(DATA_DIR, "journal.db")
 SNAP_PATH = os.path.join(DATA_DIR, "snapshots.csv")
+SENT_PATH = os.path.join(DATA_DIR, "sentiment.csv")
 CHAMPION_PATH = os.path.join(settings.model_dir, "champion.joblib")
 CHAMPION_JSON = os.path.join(settings.model_dir, "champion_genome.json")
 
@@ -28,6 +29,18 @@ IDX_DATA_DIR = "data_idx"
 IDX_JOURNAL_PATH = os.path.join(IDX_DATA_DIR, "journal.db")
 IDX_MODEL_DIR = "models_idx"
 IDX_CHAMPION_JSON = os.path.join(IDX_MODEL_DIR, "champion_genome.json")
+
+
+def _read_cfg(path):
+    try:
+        return json.load(open(path))
+    except Exception:
+        return {}
+
+
+US_CFG, IDX_CFG = _read_cfg("universe.json"), _read_cfg("universe_idx.json")
+SIZING = US_CFG.get("sizing", "equal")
+GH = ghactions.configured()          # UI actions go through GitHub Actions (git = source of truth)
 
 
 # ---------------------------------------------------------------- helpers
@@ -59,7 +72,7 @@ def load_data(symbols, asset_pairs, start, end, backend):
     am = dict(asset_pairs)
     bars = datafeed.get_daily_bars(list(symbols), am, start, end, settings)
     macro = datafeed.get_macro(start, settings)
-    sent = datafeed.get_news_sentiment(list(symbols), settings, days=45, backend=backend)
+    sent = datafeed.sentiment_features(datafeed.load_sentiment_store(SENT_PATH), list(symbols))
     exo = exodata.get_exo(start, SNAP_PATH)
     return bars, macro, sent, exo
 
@@ -102,6 +115,20 @@ if not bars:
     st.error("No data returned. Check symbols and API keys.")
     st.stop()
 closes = pd.DataFrame({s: df["close"] for s, df in bars.items()})
+opens = pd.DataFrame({s: df["open"] for s, df in bars.items()})
+_evo = US_CFG.get("evolution", {})
+SENT_DAYS = datafeed.sentiment_coverage_days(datafeed.load_sentiment_store(SENT_PATH))
+SENT_READY = SENT_DAYS >= _evo.get("sentiment_min_days", 365 * _evo.get("eval_years", 2))
+
+
+def weights_for(sig: pd.Series, lev: float) -> pd.Series:
+    """Latest signals -> portfolio weights with the configured sizing (same code as the pipeline)."""
+    cols = [c for c in sig.index if c in closes]
+    if not cols:
+        return sig * (lev / max(1, len(sig)))
+    w = backtest.target_weights(pd.DataFrame([sig[cols]], index=[closes.index[-1]]),
+                                closes[cols], lev, SIZING)
+    return w.iloc[-1].reindex(sig.index).fillna(0.0)
 
 # champion: joblib bundle, else genome JSON (CI/Cloud) with model trained on the fly
 champion = models.load_bundle(CHAMPION_PATH)
@@ -180,7 +207,9 @@ with tab_daily:
             st.markdown(f"<p style='text-align:center'>{sig_label(v)} · strength {abs(v):.0%}</p>",
                         unsafe_allow_html=True)
 
-    w = latest_nonan * (genome.max_leverage / len(latest_nonan))
+    w = weights_for(latest_nonan, genome.max_leverage)
+    st.caption(f"Sizing: **{SIZING}**" + (" — calmer assets get a larger share of the same budget"
+                                          if SIZING == "inv_vol" else ""))
     st.dataframe(pd.DataFrame({"signal": latest_nonan, "target weight": w,
                                "action": latest_nonan.map(sig_label)})
                  .style.format({"signal": "{:+.2f}", "target weight": "{:+.1%}"}),
@@ -270,14 +299,15 @@ with tab_lab:
     st.subheader("🧬 Strategy Lab — create strategies that adapt to the market")
     st.caption("Each candidate = model type + feature groups (incl. options/short/on-chain) + "
                "macro/sentiment toggles + horizon + thresholds + sizing. "
-               "Fitness = Sharpe − ½·|MaxDD| on a strictly out-of-sample walk-forward backtest.")
+               "Fitness = Sharpe − ½·|MaxDD| + a small capped activity bonus, on a strictly "
+               "out-of-sample walk-forward backtest — the same score the sitting champion gets.")
     method = st.radio("Search method", ["Evolution (genetic)", "Optuna (Bayesian)"], horizontal=True)
     exclude_groups = st.multiselect(
-        "Exclude feature groups from search", options=list(FEATURE_GROUPS),
-        default=["options", "short", "onchain"],
-        help="These groups' real snapshot history only recently started accumulating — "
-             "including them can make the search pick a genome trained mostly on "
-             "placeholder data. Excluded by default until there's enough real history.")
+        "Exclude feature groups from search", options=list(FEATURE_GROUPS) + ["macro", "sentiment"],
+        default=["options", "short", "onchain"] + ([] if SENT_READY else ["sentiment"]),
+        help="These groups' real history only recently started accumulating — including them "
+             "can make the search pick a genome trained mostly on placeholder data. "
+             f"Sentiment store: {SENT_DAYS} days so far.")
     c1, c2, c3 = st.columns(3)
     eval_years = c1.slider("Evaluation window (years)", 1, 4, 2)
     seed = c2.number_input("Random seed", 0, 9999, 42)
@@ -302,7 +332,8 @@ with tab_lab:
                 status.write(f"Generation {g + 1}/{n} — best fitness **{best_score:.3f}** ({best_g.name})")
             rows, hist = models.evolve(panel_full, pop_size, n_gen, seed,
                                        cost_bps=fee_bps + slip_bps, progress=cb,
-                                       exclude_groups=tuple(exclude_groups))
+                                       exclude_groups=tuple(exclude_groups),
+                                       exec_open=tuple(stocks), sizing=SIZING)
         else:
             base = {}
             def cb2(study, trial):
@@ -318,7 +349,8 @@ with tab_lab:
             rows, hist, _ = optimize.optimize(panel_full, n_trials=n_trials, seed=seed,
                                               cost_bps=fee_bps + slip_bps, storage=storage,
                                               timeout=timeout_min * 60 or None, progress=cb2,
-                                              exclude_groups=tuple(exclude_groups))
+                                              exclude_groups=tuple(exclude_groups),
+                                              exec_open=tuple(stocks), sizing=SIZING)
         st.session_state["lab"] = {"rows": rows, "hist": hist}
         status.success("Done — pick a champion below.")
 
@@ -335,7 +367,19 @@ with tab_lab:
             st.warning(f"This candidate's backtest score is **{chosen_score:.3f}** — at or "
                        "below breakeven. Promoting it makes it champion anyway, but it isn't "
                        "a proven-profitable strategy, just the best one tried so far.")
-        if st.button("💾 Train on full history & save as champion"):
+        if GH:
+            st.caption("Promotion goes through the daily-pipeline workflow (no trading), so the "
+                       "champion is trained, committed to git and used by every scheduled run.")
+            if st.button("💾 Promote via GitHub Actions"):
+                g = rows[int(idx)]["genome"]
+                try:
+                    ghactions.dispatch("daily_pipeline.yml", {"promote_genome": json.dumps(asdict(g)),
+                                                              "trade": False})
+                    st.success(f"Requested promotion of **{g.name}** — follow it in "
+                               f"[GitHub Actions]({ghactions.actions_url('daily_pipeline.yml')}).")
+                except Exception as e:
+                    st.error(str(e))
+        elif st.button("💾 Train on full history & save as champion (local files only)"):
             g = rows[int(idx)]["genome"]
             full = Genome(feature_groups=tuple(FEATURE_GROUPS), use_macro=True, use_sentiment=True)
             with st.spinner("Training final model on all history…"):
@@ -367,12 +411,20 @@ with tab_bt:
     else:
         g_bt = Genome()
 
+    c1, c2 = st.columns(2)
+    sizing_bt = c1.radio("Sizing", ["equal", "inv_vol"], index=int(SIZING == "inv_vol"),
+                         horizontal=True)
+    next_open = c2.checkbox("Stocks fill at the next open (like the live pipeline)", True,
+                            help="Orders are sent after the close and fill at the next open, so "
+                                 "the live account earns open-to-open returns on stocks.")
     if st.button("▶️ Run backtest", type="primary"):
         with st.spinner("Running walk-forward backtest…"):
             p = build_panel(bars, macro, sent, g_bt, exo)
             s_bt, _ = cached_wf(p, asdict(g_bt))
             res = backtest.run_backtest(closes, s_bt, fee_bps, slip_bps,
-                                        g_bt.max_leverage, allow_short)
+                                        g_bt.max_leverage, allow_short, opens=opens,
+                                        exec_open=tuple(stocks) if next_open else (),
+                                        sizing=sizing_bt)
         st.session_state["bt"] = {"res": res, "sig": s_bt, "name": g_bt.name}
 
     if "bt" in st.session_state:
@@ -443,10 +495,15 @@ with tab_paper:
         st.warning("No signals available — check the Daily tab first.")
         st.stop()
     latest_p = latest.reindex(list(bars.keys())).fillna(0)
-    w = latest_p.clip(lower=0 if not allow_short else -1)
+    w = weights_for(latest_p.clip(lower=0 if not allow_short else -1), genome.max_leverage)
     crypto_syms = [s for s in w.index if asset_map.get(s) == "crypto"]
     w[crypto_syms] = w[crypto_syms].clip(lower=0)      # no crypto shorts on Alpaca
-    w = w * (genome.max_leverage / len(w))
+    try:
+        tradable = json.load(open(latest_path)).get("tradable")
+    except Exception:
+        tradable = None
+    if tradable is not None:                           # pipeline's data-health verdict
+        w = w[w.index.isin(tradable)]
     targets = (w * float(acct.equity)).to_dict()
     cur = {p.symbol: float(p.market_value) for p in pos}
     preview = pd.DataFrame({
@@ -456,7 +513,17 @@ with tab_paper:
     st.dataframe(preview.style.format("{:+.2f}"), use_container_width=True)
 
     confirm = st.checkbox("I understand this submits orders to my **paper** account")
-    if st.button("📤 Execute rebalance", disabled=not confirm, type="primary"):
+    if GH:
+        st.caption("Runs the daily-pipeline workflow: it rebalances, journals and commits, so "
+                   "the forward test sees these orders.")
+        if st.button("📤 Rebalance via GitHub Actions", disabled=not confirm, type="primary"):
+            try:
+                ghactions.dispatch("daily_pipeline.yml", {"trade": True})
+                st.success(f"Requested — follow it in [GitHub Actions]"
+                           f"({ghactions.actions_url('daily_pipeline.yml')}).")
+            except Exception as e:
+                st.error(str(e))
+    elif st.button("📤 Execute rebalance (local journal only)", disabled=not confirm, type="primary"):
         results = datafeed.rebalance(tc, targets, asset_map)
         journal.log(JOURNAL_PATH, "signals", latest_p.to_dict())
         journal.log(JOURNAL_PATH, "orders", results)
@@ -481,7 +548,12 @@ with tab_auto:
             age = pd.Timestamp.now("UTC").tz_localize(None) - ts
             st.metric("Last pipeline run", f"{ts:%Y-%m-%d %H:%M} UTC",
                       f"{age.days * 24 + age.seconds // 3600}h ago")
-            st.write(f"**Genome:** {d.get('genome', '?')} · **Regime:** `{d.get('regime')}`")
+            st.write(f"**Genome:** {d.get('genome', '?')} · **Session:** {d.get('session', '?')} · "
+                     f"**Regime:** `{d.get('regime')}`")
+            for issue in (d.get("data_health") or {}).get("issues", []):
+                st.warning(f"Data health: {issue}")
+            if d.get("sentiment_note"):
+                st.info(d["sentiment_note"])
             st.json(d.get("signals", {}), expanded=False)
         else:
             st.info("No pipeline output yet — run it once (right) or start the scheduler.")
@@ -490,7 +562,16 @@ with tab_auto:
         st.caption("Trains the champion, logs signals, snapshots exo data, and rebalances "
                    "the paper account (per universe.json).")
         ack = st.checkbox("I understand this may submit paper orders", key="pipe_ack")
-        if st.button("▶️ Run pipeline", disabled=not ack):
+        if GH:
+            evolve_now = st.checkbox("Also run the Strategy Lab (--evolve)", key="pipe_evolve")
+            if st.button("▶️ Run pipeline on GitHub Actions", disabled=not ack):
+                try:
+                    ghactions.dispatch("daily_pipeline.yml", {"evolve": evolve_now, "trade": True})
+                    st.success(f"Requested — follow it in [GitHub Actions]"
+                               f"({ghactions.actions_url('daily_pipeline.yml')}).")
+                except Exception as e:
+                    st.error(str(e))
+        elif st.button("▶️ Run pipeline (local)", disabled=not ack):
             if not os.path.exists("universe.json"):
                 st.error("universe.json not found — copy universe.example.json and adjust it.")
             else:
@@ -541,7 +622,7 @@ with tab_auto:
     st.divider()
     st.markdown("#### Continuous forward test — do journaled signals predict future returns?")
     events = forwardtest.signal_events(journal.read(JOURNAL_PATH, limit=10000))
-    rep = forwardtest.report(events, closes, horizon=genome.horizon)
+    rep = forwardtest.report(events, closes, horizon=genome.horizon, session_cfg=US_CFG)
     if rep.get("n", 0) >= 10:
         c1, c2, c3 = st.columns(3)
         c1.metric("Matured observations", rep["n"])
@@ -640,7 +721,8 @@ with tab_idx:
         idx_genome_horizon = 5
         if os.path.exists(IDX_CHAMPION_JSON):
             idx_genome_horizon = json.load(open(IDX_CHAMPION_JSON)).get("horizon", 5)
-        idx_rep = forwardtest.report(idx_events, idx_closes, horizon=idx_genome_horizon)
+        idx_rep = forwardtest.report(idx_events, idx_closes, horizon=idx_genome_horizon,
+                                     session_cfg=IDX_CFG)
         if idx_rep.get("n", 0) >= 10:
             c1, c2, c3 = st.columns(3)
             c1.metric("Observasi matang", idx_rep["n"])
@@ -679,7 +761,8 @@ with tab_idx:
                     c_genome = (Genome(**json.load(open(IDX_CHAMPION_JSON)))
                                if os.path.exists(IDX_CHAMPION_JSON) else Genome())
                     c_macro = datafeed.get_macro(c_start, settings) if c_genome.use_macro else pd.DataFrame()
-                    c_sent = (datafeed.get_news_sentiment(custom_idx, settings, days=45)
+                    c_sent = (datafeed.sentiment_features(datafeed.load_sentiment_store(
+                                  os.path.join(IDX_DATA_DIR, "sentiment.csv")), custom_idx)
                              if c_genome.use_sentiment else pd.DataFrame())
                     c_panel = build_panel(c_bars, c_macro, c_sent, c_genome, {})
                     c_model = models.train_final_model(c_panel, c_genome)
