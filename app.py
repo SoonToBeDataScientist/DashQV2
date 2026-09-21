@@ -517,6 +517,27 @@ with tab_auto:
         ev.insert(0, "ts", pd.to_datetime(evo_events["ts"]).dt.strftime("%Y-%m-%d %H:%M"))
         st.dataframe(ev, use_container_width=True)
 
+        if {"champion_score", "champion_live_ic"}.issubset(ev.columns) and len(ev) >= 2:
+            st.markdown("##### Backtest score vs live IC — the overfitting check")
+            st.caption("If the backtest score (blue) looks healthy while live IC (orange) stays "
+                       "flat or negative, that's the classic overfitting signature: good on paper, "
+                       "not holding up on data the model hasn't seen.")
+            ts_raw = pd.to_datetime(evo_events["ts"])
+            fig_of = go.Figure()
+            fig_of.add_trace(go.Scatter(x=ts_raw, y=ev["champion_score"], mode="lines+markers",
+                                        name="Backtest score (champion)"))
+            if ev["champion_live_ic"].notna().any():
+                fig_of.add_trace(go.Scatter(x=ts_raw, y=ev["champion_live_ic"], mode="lines+markers",
+                                            name="Live IC", yaxis="y2"))
+                fig_of.update_layout(yaxis2=dict(overlaying="y", side="right", title="Live IC"))
+            else:
+                st.caption("Live IC belum pernah kehitung (butuh cukup observasi matang) — chart "
+                           "ini baru beneran informatif begitu garis itu mulai muncul.")
+            fig_of.update_layout(yaxis=dict(title="Backtest score"), height=320,
+                                margin=dict(l=10, r=10, t=30, b=10),
+                                legend=dict(orientation="h", y=1.1))
+            st.plotly_chart(fig_of, use_container_width=True)
+
     st.divider()
     st.markdown("#### Continuous forward test — do journaled signals predict future returns?")
     events = forwardtest.signal_events(journal.read(JOURNAL_PATH, limit=10000))
@@ -541,10 +562,9 @@ with tab_auto:
 
 # ================================================================ IDX
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_idx_closes(symbols, start, end):
+def load_idx_bars(symbols, start, end):
     am = {s: "stock" for s in symbols}
-    bars = datafeed.get_daily_bars(symbols, am, start, end, settings)
-    return pd.DataFrame({k: v["close"] for k, v in bars.items() if not v.empty})
+    return datafeed.get_daily_bars(list(symbols), am, start, end, settings)
 
 
 with tab_idx:
@@ -615,7 +635,8 @@ with tab_idx:
         idx_events = forwardtest.signal_events(idx_jdf_full)
         idx_start = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(days=400)
         idx_end = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
-        idx_closes = load_idx_closes(tuple(idx_latest.index), idx_start, idx_end)
+        idx_bars_for_ic = load_idx_bars(tuple(idx_latest.index), idx_start, idx_end)
+        idx_closes = pd.DataFrame({k: v["close"] for k, v in idx_bars_for_ic.items() if not v.empty})
         idx_genome_horizon = 5
         if os.path.exists(IDX_CHAMPION_JSON):
             idx_genome_horizon = json.load(open(IDX_CHAMPION_JSON)).get("horizon", 5)
@@ -632,3 +653,45 @@ with tab_idx:
                        "(butuh beberapa minggu pipeline jalan tiap hari).")
     except Exception as e:
         st.caption(f"Belum bisa hitung forward-test IC: {e}")
+
+    st.divider()
+    st.markdown("### 🔍 Jelajahi saham IDX lain")
+    st.caption("Cek sinyal cepat buat saham IDX di luar 15 yang dilacak resmi di atas — pakai "
+               "genome sekarang, hitung sekali (bukan walk-forward penuh), belum masuk forward-test.")
+    idx_default_stocks = idx_latest.index.tolist()
+    custom_idx_raw = st.text_input("Saham IDX (pisah koma, pakai akhiran .JK)",
+                                   ", ".join(idx_default_stocks), key="idx_custom_stocks")
+    if st.button("Cek sinyal", key="idx_custom_run"):
+        custom_idx = [s.strip().upper() for s in custom_idx_raw.split(",") if s.strip()]
+        bad = [s for s in custom_idx if not s.endswith(".JK")]
+        if not custom_idx:
+            st.warning("Isi minimal satu ticker.")
+        elif bad:
+            st.warning(f"Ticker ini kelihatannya bukan format IDX (butuh akhiran .JK): {', '.join(bad)}")
+        else:
+            with st.spinner("Ambil data & hitung sinyal…"):
+                try:
+                    c_end = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+                    c_start = c_end - dt.timedelta(days=730)
+                    c_bars = load_idx_bars(tuple(custom_idx), c_start, c_end)
+                    c_bars = {k: v for k, v in c_bars.items() if len(v) > 120}
+                    missing = set(custom_idx) - set(c_bars)
+                    c_genome = (Genome(**json.load(open(IDX_CHAMPION_JSON)))
+                               if os.path.exists(IDX_CHAMPION_JSON) else Genome())
+                    c_macro = datafeed.get_macro(c_start, settings) if c_genome.use_macro else pd.DataFrame()
+                    c_sent = (datafeed.get_news_sentiment(custom_idx, settings, days=45)
+                             if c_genome.use_sentiment else pd.DataFrame())
+                    c_panel = build_panel(c_bars, c_macro, c_sent, c_genome, {})
+                    c_model = models.train_final_model(c_panel, c_genome)
+                    c_sig = models.recent_signals(c_panel, c_genome, c_model).iloc[-1].dropna()
+                except Exception as e:
+                    st.error(f"Gagal hitung: {e}")
+                    c_sig, missing = pd.Series(dtype=float), set()
+            if missing:
+                st.caption(f"Tidak cukup data buat: {', '.join(sorted(missing))}")
+            if not c_sig.empty:
+                cc = st.columns(min(5, len(c_sig)))
+                for i, (sym, v) in enumerate(c_sig.sort_values().items()):
+                    with cc[i % len(cc)]:
+                        st.plotly_chart(gauge(sym.replace(".JK", ""), float(v)), use_container_width=True)
+                        st.markdown(f"<p style='text-align:center'>{sig_label(v)}</p>", unsafe_allow_html=True)
