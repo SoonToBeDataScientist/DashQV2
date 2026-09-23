@@ -19,7 +19,7 @@ def fitness(m: dict) -> float:
     """The single score every strategy is ranked by — challengers in the search AND the sitting
     champion, so promotion compares like with like."""
     score = m["sharpe"] - 0.5 * abs(m["max_drawdown"])
-    score += 0.3 * min(m["exposure"], 0.4)       # reward being active, capped so it can't dominate
+    score += 0.5 * min(m["exposure"], 0.4)       # reward being active, capped so it can't dominate
     return float(score - (0.5 if m["exposure"] < 0.05 else 0.0))
 
 
