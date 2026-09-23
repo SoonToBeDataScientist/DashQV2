@@ -1,6 +1,6 @@
 {
-  "ts": "2026-09-23T03:21:28.907359+00:00",
-  "session": "2026-09-22",
+  "ts": "2026-09-23T23:55:24.493685+00:00",
+  "session": "2026-09-23",
   "symbols": [
     "AAPL",
     "MSFT",
@@ -11,11 +11,11 @@
   ],
   "genome": "G4-9",
   "signals": {
-    "AAPL": 0.0,
-    "BTC/USD": 0.2672,
+    "AAPL": -0.0,
+    "BTC/USD": 0.0514,
     "ETH/USD": 0.0,
-    "MSFT": 0.0518,
-    "NVDA": 0.0436,
+    "MSFT": 0.0,
+    "NVDA": 0.0,
     "SPY": 0.0
   },
   "tradable": [
@@ -29,21 +29,21 @@
   "data_health": {
     "issues": [],
     "sources": {
-      "AAPL": "alpaca-sip+cache",
-      "MSFT": "alpaca-sip+cache",
-      "NVDA": "alpaca-sip+cache",
-      "SPY": "alpaca-sip+cache",
-      "BTC/USD": "alpaca+cache",
-      "ETH/USD": "alpaca+cache"
+      "AAPL": "alpaca-sip",
+      "MSFT": "alpaca-sip",
+      "NVDA": "alpaca-sip",
+      "SPY": "alpaca-sip",
+      "BTC/USD": "alpaca",
+      "ETH/USD": "alpaca"
     }
   },
   "sentiment_days": 9,
   "sentiment_note": "sentiment off: 9 days of history, needs 730",
   "regime": {
-    "vix": 14.87,
-    "vix_z": -0.89,
-    "spy_ret21": 0.0124,
-    "usdidr": 17878.0,
-    "usdidr_chg5": 0.0121
+    "vix": 14.21,
+    "vix_z": -1.33,
+    "spy_ret21": 0.005,
+    "usdidr": 17805.0,
+    "usdidr_chg5": 0.0079
   }
 }
