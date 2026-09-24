@@ -1,5 +1,5 @@
 {
-  "ts": "2026-09-24T05:49:36.650388+00:00",
+  "ts": "2026-09-24T14:10:47.320491+00:00",
   "session": "2026-09-24",
   "symbols": [
     "BBCA.JK",
@@ -20,23 +20,39 @@
   ],
   "genome": "base",
   "signals": {
-    "ANTM.JK": -0.1275,
+    "ANTM.JK": -0.083,
     "ASII.JK": -0.0,
     "BBCA.JK": -0.0,
     "BBNI.JK": -0.0,
     "BBRI.JK": -0.0,
-    "BMRI.JK": -0.0,
+    "BMRI.JK": 0.0,
     "EXCL.JK": -0.0,
     "ICBP.JK": -0.0,
     "INDF.JK": -0.0,
-    "KLBF.JK": 0.0,
-    "PGAS.JK": -0.0,
-    "SMGR.JK": -0.0945,
-    "TLKM.JK": -0.0,
+    "KLBF.JK": -0.0,
+    "PGAS.JK": 0.0,
+    "SMGR.JK": -0.0044,
+    "TLKM.JK": 0.0,
     "UNTR.JK": -0.0,
     "UNVR.JK": 0.0
   },
-  "tradable": [],
+  "tradable": [
+    "BBCA.JK",
+    "BBRI.JK",
+    "BMRI.JK",
+    "BBNI.JK",
+    "TLKM.JK",
+    "ASII.JK",
+    "UNVR.JK",
+    "ICBP.JK",
+    "KLBF.JK",
+    "SMGR.JK",
+    "ANTM.JK",
+    "PGAS.JK",
+    "INDF.JK",
+    "UNTR.JK",
+    "EXCL.JK"
+  ],
   "data_health": {
     "issues": [],
     "sources": {
@@ -62,8 +78,8 @@
   "regime": {
     "vix": 14.21,
     "vix_z": -1.29,
-    "spy_ret21": 0.0047,
-    "usdidr": 17875.0,
-    "usdidr_chg5": 0.0089
+    "spy_ret21": 0.0024,
+    "usdidr": 17893.0,
+    "usdidr_chg5": 0.0099
   }
 }
