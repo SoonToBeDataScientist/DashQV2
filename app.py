@@ -203,7 +203,7 @@ with tab_daily:
     cols = st.columns(min(4, len(latest_nonan)))
     for i, (sym, v) in enumerate(latest_nonan.items()):
         with cols[i % len(cols)]:
-            st.plotly_chart(gauge(sym, float(v)), use_container_width=True)
+            st.plotly_chart(gauge(sym, float(v)), use_container_width=True, key=f"gauge_daily_{sym}")
             st.markdown(f"<p style='text-align:center'>{sig_label(v)} · strength {abs(v):.0%}</p>",
                         unsafe_allow_html=True)
 
@@ -687,7 +687,8 @@ with tab_idx:
     cols = st.columns(min(5, max(1, len(idx_nonan))))
     for i, (sym, v) in enumerate(idx_nonan.items()):
         with cols[i % len(cols)]:
-            st.plotly_chart(gauge(sym.replace(".JK", ""), float(v)), use_container_width=True)
+            st.plotly_chart(gauge(sym.replace(".JK", ""), float(v)), use_container_width=True,
+                            key=f"gauge_idx_{sym}")
             st.markdown(f"<p style='text-align:center'>{sig_label(v)}</p>", unsafe_allow_html=True)
     st.dataframe(pd.DataFrame({"signal": idx_nonan, "action": idx_nonan.map(sig_label)})
                  .style.format({"signal": "{:+.3f}"}), use_container_width=True)
@@ -776,5 +777,6 @@ with tab_idx:
                 cc = st.columns(min(5, len(c_sig)))
                 for i, (sym, v) in enumerate(c_sig.sort_values().items()):
                     with cc[i % len(cc)]:
-                        st.plotly_chart(gauge(sym.replace(".JK", ""), float(v)), use_container_width=True)
+                        st.plotly_chart(gauge(sym.replace(".JK", ""), float(v)), use_container_width=True,
+                                        key=f"gauge_idxcustom_{sym}")
                         st.markdown(f"<p style='text-align:center'>{sig_label(v)}</p>", unsafe_allow_html=True)
