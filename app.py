@@ -506,11 +506,18 @@ with tab_paper:
         w = w[w.index.isin(tradable)]
     targets = (w * float(acct.equity)).to_dict()
     cur = {p.symbol: float(p.market_value) for p in pos}
+    syms = list(latest_p.index)                        # show every symbol, tradable or not
     preview = pd.DataFrame({
-        "signal": latest_p, "target $": pd.Series(targets),
-        "current $": [cur.get(s, cur.get(s.replace("/", ""), 0.0)) for s in targets]})
+        "signal": latest_p,
+        "target $": pd.Series(targets, dtype=float).reindex(syms),
+        "current $": pd.Series({s: cur.get(s, cur.get(s.replace("/", ""), 0.0)) for s in syms},
+                               dtype=float)})
     preview["trade $"] = preview["target $"] - preview["current $"]
-    st.dataframe(preview.style.format("{:+.2f}"), use_container_width=True)
+    st.dataframe(preview.style.format("{:+.2f}", na_rep="—"), use_container_width=True)
+    if tradable is not None and len(targets) < len(syms):
+        skipped = [s for s in syms if s not in targets]
+        st.caption(f"— = not tradable this run ({', '.join(skipped)}): no bar for the current "
+                   "session (weekend/holiday) or a data-health issue. Their positions stay untouched.")
 
     confirm = st.checkbox("I understand this submits orders to my **paper** account")
     if GH:
