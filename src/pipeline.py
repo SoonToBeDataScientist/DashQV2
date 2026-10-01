@@ -248,6 +248,7 @@ def check_intraday(config_path="universe.json") -> dict | None:
     macro = datafeed.get_macro(start, s)
     sent, _, sent_ready = _sentiment(cfg, s, symbols, update=False)
     exo = exodata.get_exo(start, os.path.join(s.data_dir, "snapshots.csv"))
+    exo["econ"] = datafeed.get_econ_sentiment(start, s)
     full = Genome(feature_groups=tuple(FEATURE_GROUPS), use_macro=True, use_sentiment=True)
     panel = build_panel(bars, macro, sent, full, exo)
     return _search_and_maybe_promote(s, cfg, panel, _effective(genome, sent_ready), jpath,
@@ -275,7 +276,8 @@ def run(config_path="universe.json", force_evolve=False, no_trade=False,
     snaps = exodata.collect_snapshots(cfg.get("snapshot_symbols", symbols), asset_map,
                                       os.path.join(s.data_dir, "snapshots.csv"))
     exo = {"options_market": exodata.options_market_history(start),
-           "onchain": exodata.onchain_history(), "snapshots": snaps}
+           "onchain": exodata.onchain_history(), "snapshots": snaps,
+           "econ": datafeed.get_econ_sentiment(start, s)}
 
     # 2. champion (+ a promotion requested from the UI) and latest signals
     full = Genome(feature_groups=tuple(FEATURE_GROUPS), use_macro=True, use_sentiment=True)
