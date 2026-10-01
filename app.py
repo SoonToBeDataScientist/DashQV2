@@ -200,6 +200,12 @@ with tab_daily:
     st.caption("The signal **is** the position size: +1 = max long, −1 = max short, 0 = flat. "
                "Everything between is a linear blend — e.g. +0.4 = 40% of max long allocation.")
     latest_nonan = latest.dropna()
+    missing = [x for x in latest.index if pd.isna(latest[x])]
+    if missing:
+        st.warning(f"No signal in the latest pipeline run for: {', '.join(missing)}. "
+                   "They are left out of the gauges and table below until a run produces one.")
+    if latest_nonan.empty:
+        st.stop()
     cols = st.columns(min(4, len(latest_nonan)))
     for i, (sym, v) in enumerate(latest_nonan.items()):
         with cols[i % len(cols)]:
