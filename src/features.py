@@ -12,6 +12,10 @@ FEATURE_GROUPS = {
                 "pc_vol", "pc_oi", "atm_iv", "iv_skew"],
     "short": ["short_ratio", "short_pct_float"],
     "onchain": ["fng", "fng_chg5", "hashr_chg21", "ntx_chg21", "btc_dom"],
+    # Economic sentiment from FRED (see datafeed.get_econ_sentiment): news-based policy
+    # uncertainty (daily) + University of Michigan consumer sentiment (monthly), both dated by
+    # when they became available so a backtest can't see them early.
+    "econ": ["epu_z", "epu_chg7", "epu_lvl", "umcs_chg1", "umcs_z"],
 }
 MACRO_FEATURES = ["vix_lvl", "vix_chg5", "vix_z", "y10_chg5", "yc_spread", "spy_ret5",
                   "spy_ret21", "oil_ret5", "gold_ret5", "dxy_chg5", "unrate", "cons_sent"]
@@ -108,7 +112,7 @@ def _join_extras(f, sym, macro, sent, genome, exo=None):
         s["news_cnt"] = sent[cn].reindex(f.index).fillna(0.0) if cn in sent else 0.0
         f = f.join(s)
     if exo:
-        for key in ("options_market", "onchain"):
+        for key in ("options_market", "onchain", "econ"):
             df = exo.get(key)
             if df is not None and not df.empty:
                 f = f.join(_reindex_ffill(df, f.index))
@@ -119,6 +123,10 @@ def _join_extras(f, sym, macro, sent, genome, exo=None):
                 s = s.set_index(pd.to_datetime(s["date"])).drop(columns=["date"], errors="ignore")
                 s = s[~s.index.duplicated(keep="last")].sort_index()
                 f = f.join(_reindex_ffill(s, f.index))
+    if "econ" in genome.feature_groups:      # FRED key missing / fetch failed -> NaN, not a KeyError
+        for c in FEATURE_GROUPS["econ"]:
+            if c not in f:
+                f[c] = np.nan
     return f
 
 
