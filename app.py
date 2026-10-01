@@ -74,6 +74,7 @@ def load_data(symbols, asset_pairs, start, end, backend):
     macro = datafeed.get_macro(start, settings)
     sent = datafeed.sentiment_features(datafeed.load_sentiment_store(SENT_PATH), list(symbols))
     exo = exodata.get_exo(start, SNAP_PATH)
+    exo["econ"] = datafeed.get_econ_sentiment(start, settings)
     return bars, macro, sent, exo
 
 
