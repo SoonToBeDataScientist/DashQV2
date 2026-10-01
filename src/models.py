@@ -219,6 +219,13 @@ def recent_signals(panel: pd.DataFrame, genome: Genome, model: SignalModel,
     recent = panel[panel["date"].isin(dates)]
     sig = recent.assign(s=model.predict_signal(recent[cols])) \
                 .pivot_table(index="date", columns="symbol", values="s").sort_index()
+    # Stocks have no bar on weekends/holidays, and crypto gets a bar for the new UTC day as soon as
+    # it starts - so when a run lands after UTC midnight the panel's newest date is crypto-only and
+    # every stock is NaN on the last row. EWM smoothing (smooth > 1) happens to carry values over
+    # that gap, which is why this only broke once a champion with smooth=1 was promoted. Carry the
+    # last real signal forward explicitly so it works for any genome; data_health() in the
+    # pipeline still decides whether a stock is tradable on this session.
+    sig = sig.ffill(limit=5)
     if genome.smooth > 1:
         sig = sig.ewm(span=genome.smooth).mean()
     v = sig.to_numpy(dtype=float)
