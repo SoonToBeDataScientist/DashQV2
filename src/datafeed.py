@@ -261,6 +261,64 @@ def _fred_macro(start, key) -> pd.DataFrame:
     return pd.DataFrame(cols)
 
 
+def _fred_obs(sid: str, key: str, start) -> pd.Series:
+    import requests
+    r = requests.get("https://api.stlouisfed.org/fred/series/observations",
+                     params={"series_id": sid, "api_key": key, "file_type": "json",
+                             "observation_start": str(pd.Timestamp(start).date())}, timeout=20)
+    r.raise_for_status()
+    obs = r.json().get("observations", [])
+    return pd.Series({pd.Timestamp(o["date"]): float(o["value"])
+                      for o in obs if o["value"] not in (".", "")}, dtype=float).sort_index()
+
+
+def get_econ_sentiment(start, s: Settings) -> pd.DataFrame:
+    """Feature group "econ": economic sentiment from FRED. Returns an empty frame without a key
+    or on any failure (features.py then fills the columns with NaN).
+
+    Both series are re-dated to when they were actually available, otherwise a backtest would
+    trade on numbers that did not exist yet:
+      * USEPUINDXD (daily news-based Economic Policy Uncertainty): FRED posts day D the next
+        morning, so it is lagged one day. The daily values are very noisy (a weekend can print
+        3x a weekday), so everything is built from a 7-day mean.
+      * UMCSENT (University of Michigan consumer sentiment, monthly, dated the 1st): FRED
+        carries it with about a month's delay, so a month's reading is used from the end of the
+        FOLLOWING month. (The raw `cons_sent` macro column is not lagged - see the note in the
+        README/chat.)
+    """
+    if not getattr(s, "fred_key", ""):
+        return pd.DataFrame()
+    start = pd.Timestamp(start)
+    parts = []
+    try:
+        epu = _fred_obs("USEPUINDXD", s.fred_key, start - pd.Timedelta(days=450))
+        epu = epu.asfreq("D").ffill(limit=3)
+        m7 = epu.rolling(7, min_periods=4).mean()
+        base = m7.rolling(90, min_periods=30)
+        f = pd.DataFrame({
+            "epu_z": (m7 - base.mean()) / base.std(),
+            "epu_chg7": np.log(m7) - np.log(m7.shift(7)),
+            "epu_lvl": np.log(m7 / m7.rolling(365, min_periods=90).mean()),
+        })
+        f.index = f.index + pd.Timedelta(days=1)
+        parts.append(f)
+    except Exception:
+        pass
+    try:
+        u = _fred_obs("UMCSENT", s.fred_key, start - pd.Timedelta(days=1400))
+        base = u.rolling(36, min_periods=12)
+        g = pd.DataFrame({"umcs_chg1": u.pct_change(),
+                          "umcs_z": (u - base.mean()) / base.std()})
+        g.index = g.index + pd.offsets.MonthEnd(2)
+        parts.append(g)
+    except Exception:
+        pass
+    if not parts:
+        return pd.DataFrame()
+    out = pd.concat(parts, axis=1).sort_index()
+    return out.replace([np.inf, -np.inf], np.nan)
+
+
 def _yf_macro(start) -> pd.DataFrame:
     cols = {}
     for name, tick in YF_MACRO.items():
