@@ -54,6 +54,7 @@ def realtime_snapshot_job():
         macro = datafeed.get_macro(start, s)
         sent, _, _ = _sentiment(cfg, s, symbols, update=False)   # the daily run keeps the store fresh
         exo = exodata.get_exo(start, os.path.join(s.data_dir, "snapshots.csv"))
+        exo["econ"] = datafeed.get_econ_sentiment(start, s)
         payload = {}
         for sym, df in bars.items():
             if asset_map.get(sym) == "stock" and clock is not None and not clock.is_open:
