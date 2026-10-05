@@ -1,6 +1,6 @@
 {
-  "ts": "2026-10-02T15:42:51.794627+00:00",
-  "session": "2026-10-02",
+  "ts": "2026-10-05T18:18:47.082127+00:00",
+  "session": "2026-10-05",
   "symbols": [
     "BBCA.JK",
     "BBRI.JK",
@@ -26,33 +26,17 @@
     "BBNI.JK": 0.0,
     "BBRI.JK": -0.0,
     "BMRI.JK": -0.0,
-    "EXCL.JK": 0.0121,
+    "EXCL.JK": 0.0473,
     "ICBP.JK": -0.0,
-    "INDF.JK": -0.0,
-    "KLBF.JK": -0.0,
+    "INDF.JK": 0.0,
+    "KLBF.JK": 0.0,
     "PGAS.JK": 0.0,
-    "SMGR.JK": -0.0,
-    "TLKM.JK": 0.0062,
-    "UNTR.JK": -0.0666,
+    "SMGR.JK": 0.0,
+    "TLKM.JK": 0.0483,
+    "UNTR.JK": -0.0545,
     "UNVR.JK": 0.0
   },
-  "tradable": [
-    "BBCA.JK",
-    "BBRI.JK",
-    "BMRI.JK",
-    "BBNI.JK",
-    "TLKM.JK",
-    "ASII.JK",
-    "UNVR.JK",
-    "ICBP.JK",
-    "KLBF.JK",
-    "SMGR.JK",
-    "ANTM.JK",
-    "PGAS.JK",
-    "INDF.JK",
-    "UNTR.JK",
-    "EXCL.JK"
-  ],
+  "tradable": [],
   "data_health": {
     "issues": [],
     "sources": {
@@ -76,10 +60,10 @@
   "sentiment_days": 0,
   "sentiment_note": "sentiment off: 0 days of history, needs 730",
   "regime": {
-    "vix": 16.39,
-    "vix_z": 0.24,
-    "spy_ret21": -0.0025,
-    "usdidr": 17893.0,
-    "usdidr_chg5": 0.019
+    "vix": 15.31,
+    "vix_z": -0.52,
+    "spy_ret21": 0.0086,
+    "usdidr": 17912.0,
+    "usdidr_chg5": -0.0021
   }
 }
