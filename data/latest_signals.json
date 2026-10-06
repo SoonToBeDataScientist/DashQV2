@@ -1,5 +1,5 @@
 {
-  "ts": "2026-10-06T01:51:47.380310+00:00",
+  "ts": "2026-10-06T09:43:35.517628+00:00",
   "session": "2026-10-05",
   "symbols": [
     "AAPL",
@@ -11,10 +11,10 @@
   ],
   "genome": "G4-4",
   "signals": {
-    "AAPL": 0.0117,
-    "BTC/USD": -0.1182,
-    "ETH/USD": -0.1047,
-    "MSFT": -0.0457,
+    "AAPL": 0.0005,
+    "BTC/USD": -0.0872,
+    "ETH/USD": -0.0808,
+    "MSFT": -0.0272,
     "NVDA": -0.0,
     "SPY": -0.0
   },
@@ -29,12 +29,12 @@
   "data_health": {
     "issues": [],
     "sources": {
-      "AAPL": "alpaca-sip",
-      "MSFT": "alpaca-sip",
-      "NVDA": "alpaca-sip",
-      "SPY": "alpaca-sip",
-      "BTC/USD": "alpaca",
-      "ETH/USD": "alpaca"
+      "AAPL": "alpaca-sip+cache",
+      "MSFT": "alpaca-sip+cache",
+      "NVDA": "alpaca-sip+cache",
+      "SPY": "alpaca-sip+cache",
+      "BTC/USD": "alpaca+cache",
+      "ETH/USD": "alpaca+cache"
     }
   },
   "sentiment_days": 22,
@@ -42,7 +42,7 @@
     "vix": 15.31,
     "vix_z": -0.52,
     "spy_ret21": 0.0085,
-    "usdidr": 17912.0,
-    "usdidr_chg5": -0.0038
+    "usdidr": 17895.0,
+    "usdidr_chg5": -0.0047
   }
 }
