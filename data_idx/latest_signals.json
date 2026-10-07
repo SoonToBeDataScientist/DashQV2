@@ -1,6 +1,6 @@
 {
-  "ts": "2026-10-06T15:51:01.625750+00:00",
-  "session": "2026-10-06",
+  "ts": "2026-10-07T16:20:29.963846+00:00",
+  "session": "2026-10-07",
   "symbols": [
     "BBCA.JK",
     "BBRI.JK",
@@ -20,21 +20,21 @@
   ],
   "genome": "base",
   "signals": {
-    "ANTM.JK": 0.0268,
+    "ANTM.JK": 0.0495,
     "ASII.JK": 0.0,
     "BBCA.JK": 0.0,
     "BBNI.JK": 0.0,
     "BBRI.JK": -0.0,
     "BMRI.JK": 0.0,
-    "EXCL.JK": 0.0724,
+    "EXCL.JK": 0.0263,
     "ICBP.JK": 0.0,
-    "INDF.JK": 0.0,
+    "INDF.JK": -0.0,
     "KLBF.JK": 0.0,
     "PGAS.JK": 0.0,
-    "SMGR.JK": 0.0612,
-    "TLKM.JK": 0.0847,
+    "SMGR.JK": 0.048,
+    "TLKM.JK": 0.0,
     "UNTR.JK": 0.0,
-    "UNVR.JK": 0.0214
+    "UNVR.JK": 0.0
   },
   "tradable": [
     "BBCA.JK",
@@ -50,36 +50,36 @@
     "ANTM.JK",
     "PGAS.JK",
     "INDF.JK",
-    "UNTR.JK",
-    "EXCL.JK"
+    "EXCL.JK",
+    "UNTR.JK"
   ],
   "data_health": {
     "issues": [],
     "sources": {
-      "BBCA.JK": "yfinance",
-      "BBRI.JK": "yfinance",
-      "BMRI.JK": "yfinance",
-      "BBNI.JK": "yfinance",
-      "TLKM.JK": "yfinance",
-      "ASII.JK": "yfinance",
-      "UNVR.JK": "yfinance",
-      "ICBP.JK": "yfinance",
-      "KLBF.JK": "yfinance",
-      "SMGR.JK": "yfinance",
-      "ANTM.JK": "yfinance",
-      "PGAS.JK": "yfinance",
-      "INDF.JK": "yfinance",
-      "UNTR.JK": "yfinance",
-      "EXCL.JK": "yfinance"
+      "BBCA.JK": "yfinance+cache",
+      "BBRI.JK": "yfinance+cache",
+      "BMRI.JK": "yfinance+cache",
+      "BBNI.JK": "yfinance+cache",
+      "TLKM.JK": "yfinance+cache",
+      "ASII.JK": "yfinance+cache",
+      "UNVR.JK": "yfinance+cache",
+      "ICBP.JK": "yfinance+cache",
+      "KLBF.JK": "yfinance+cache",
+      "SMGR.JK": "yfinance+cache",
+      "ANTM.JK": "yfinance+cache",
+      "PGAS.JK": "yfinance+cache",
+      "INDF.JK": "yfinance+cache",
+      "EXCL.JK": "yfinance+cache",
+      "UNTR.JK": "yfinance"
     }
   },
   "sentiment_days": 0,
   "sentiment_note": "sentiment off: 0 days of history, needs 730",
   "regime": {
-    "vix": 15.52,
-    "vix_z": -0.37,
-    "spy_ret21": 0.0169,
+    "vix": 15.01,
+    "vix_z": -0.71,
+    "spy_ret21": 0.0165,
     "usdidr": 17905.0,
-    "usdidr_chg5": -0.0042
+    "usdidr_chg5": 0.0095
   }
 }
