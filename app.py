@@ -328,17 +328,24 @@ with tab_lab:
         resume = c5.checkbox("Resume saved study (data/optuna.db)", True)
 
     if st.button("🚀 Run search", type="primary"):
+        bar, status = st.progress(0.0), st.empty()
+        status.write("Building the feature panel…")
         full = Genome(feature_groups=tuple(FEATURE_GROUPS), use_macro=True, use_sentiment=True)
         cutoff = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(days=365 * eval_years)
         panel_full = build_panel(bars, macro, sent, full, exo)
         panel_full = panel_full[panel_full["date"] >= pd.Timestamp(cutoff)]
-        bar, status = st.progress(0.0), st.empty()
         if method.startswith("Evolution"):
-            def cb(g, n, best_score, best_g):
-                bar.progress((g + 1) / n)
-                status.write(f"Generation {g + 1}/{n} — best fitness **{best_score:.3f}** ({best_g.name})")
+            best = {"txt": ""}
+            def cb(g, n, best_score, best_g):          # fires once per finished generation
+                best["txt"] = f" · best so far **{best_score:.3f}** ({best_g.name})"
+            def on_eval(stage, stages, k, total, g):   # fires after every candidate
+                bar.progress(min(1.0, (stage + k / total) / stages))
+                what = "Ranking final generation" if stage == stages - 1 else f"Generation {stage + 1}/{stages - 1}"
+                status.write(f"{what} — candidate {k}/{total} ({g.model_type})" + best["txt"])
+            status.write("Evaluating the first generation (each candidate is a full walk-forward "
+                         "backtest, so this can take a while on a small server)…")
             rows, hist = models.evolve(panel_full, pop_size, n_gen, seed,
-                                       cost_bps=fee_bps + slip_bps, progress=cb,
+                                       cost_bps=fee_bps + slip_bps, progress=cb, on_eval=on_eval,
                                        exclude_groups=tuple(exclude_groups),
                                        exec_open=tuple(stocks), sizing=SIZING)
         else:
