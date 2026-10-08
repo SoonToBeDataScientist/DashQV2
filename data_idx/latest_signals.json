@@ -1,6 +1,6 @@
 {
-  "ts": "2026-10-07T16:20:29.963846+00:00",
-  "session": "2026-10-07",
+  "ts": "2026-10-08T16:22:40.828309+00:00",
+  "session": "2026-10-08",
   "symbols": [
     "BBCA.JK",
     "BBRI.JK",
@@ -20,21 +20,21 @@
   ],
   "genome": "base",
   "signals": {
-    "ANTM.JK": 0.0495,
+    "ANTM.JK": 0.1307,
     "ASII.JK": 0.0,
     "BBCA.JK": 0.0,
-    "BBNI.JK": 0.0,
-    "BBRI.JK": -0.0,
-    "BMRI.JK": 0.0,
-    "EXCL.JK": 0.0263,
+    "BBNI.JK": 0.0466,
+    "BBRI.JK": 0.0,
+    "BMRI.JK": 0.051,
+    "EXCL.JK": 0.1031,
     "ICBP.JK": 0.0,
-    "INDF.JK": -0.0,
+    "INDF.JK": 0.0,
     "KLBF.JK": 0.0,
     "PGAS.JK": 0.0,
-    "SMGR.JK": 0.048,
-    "TLKM.JK": 0.0,
+    "SMGR.JK": 0.0601,
+    "TLKM.JK": 0.0871,
     "UNTR.JK": 0.0,
-    "UNVR.JK": 0.0
+    "UNVR.JK": 0.0626
   },
   "tradable": [
     "BBCA.JK",
@@ -50,8 +50,8 @@
     "ANTM.JK",
     "PGAS.JK",
     "INDF.JK",
-    "EXCL.JK",
-    "UNTR.JK"
+    "UNTR.JK",
+    "EXCL.JK"
   ],
   "data_health": {
     "issues": [],
@@ -69,17 +69,17 @@
       "ANTM.JK": "yfinance+cache",
       "PGAS.JK": "yfinance+cache",
       "INDF.JK": "yfinance+cache",
-      "EXCL.JK": "yfinance+cache",
-      "UNTR.JK": "yfinance"
+      "UNTR.JK": "yfinance+cache",
+      "EXCL.JK": "yfinance+cache"
     }
   },
   "sentiment_days": 0,
   "sentiment_note": "sentiment off: 0 days of history, needs 730",
   "regime": {
-    "vix": 15.01,
-    "vix_z": -0.71,
-    "spy_ret21": 0.0165,
-    "usdidr": 17905.0,
-    "usdidr_chg5": 0.0095
+    "vix": 15.08,
+    "vix_z": -0.64,
+    "spy_ret21": 0.0199,
+    "usdidr": 17885.0,
+    "usdidr_chg5": 0.0
   }
 }
