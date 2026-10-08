@@ -255,7 +255,8 @@ def score_genome(panel: pd.DataFrame, g: Genome, cost_bps: float, exec_open=(), 
 
 
 def evolve(panel: pd.DataFrame, pop_size=10, generations=4, seed=42,
-           cost_bps=10.0, progress=None, exclude_groups=(), exec_open=(), sizing="equal"):
+           cost_bps=10.0, progress=None, exclude_groups=(), exec_open=(), sizing="equal",
+           on_eval=None):
     """Genetic search, ranked by backtest.fitness on a walk-forward backtest.
     exclude_groups: feature groups withheld from the search space (e.g. options/short/onchain
     while their real snapshot history is still too short to be meaningful)."""
@@ -271,10 +272,23 @@ def evolve(panel: pd.DataFrame, pop_size=10, generations=4, seed=42,
                 cache[g.key()] = (-999.0, {})
         return cache[g.key()]
 
+    def score_pop(pop, stage):
+        """Scores a population one genome at a time. `progress` only fires once a whole
+        generation is done - minutes into the run on a small server - so `on_eval(stage, stages,
+        done, total, genome)` fires after EVERY candidate (cached elites count instantly). There
+        are generations + 1 stages: the last one ranks the final children, which used to be
+        scored silently after the bar had already reached 100%."""
+        out = []
+        for k, g in enumerate(pop, 1):
+            out.append((g, evaluate(g)))
+            if on_eval:
+                on_eval(stage, generations + 1, k, len(pop), g)
+        return out
+
     pop = [random_genome(rng, f"G0-{i}", exclude_groups) for i in range(pop_size)]
     history = []
     for gen in range(generations):
-        scored = sorted(((g, evaluate(g)) for g in pop), key=lambda t: t[1][0], reverse=True)
+        scored = sorted(score_pop(pop, gen), key=lambda t: t[1][0], reverse=True)
         history.append({"generation": gen, "best": scored[0][1][0],
                         "avg": float(np.mean([s[1][0] for s in scored]))})
         if progress:
@@ -289,7 +303,7 @@ def evolve(panel: pd.DataFrame, pop_size=10, generations=4, seed=42,
         pop = nxt
 
     rows = []
-    for g, (score, m) in sorted(((g, evaluate(g)) for g in pop), key=lambda t: t[1][0], reverse=True):
+    for g, (score, m) in sorted(score_pop(pop, generations), key=lambda t: t[1][0], reverse=True):
         rows.append({"genome": g, "name": g.name, "score": round(score, 3),
                      **{k: (round(m[k], 3) if m.get(k) is not None else None)
                         for k in ["sharpe", "sortino", "max_drawdown", "cagr", "hit_rate", "exposure"]},
