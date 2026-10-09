@@ -1,6 +1,6 @@
 {
-  "ts": "2026-10-08T16:22:40.828309+00:00",
-  "session": "2026-10-08",
+  "ts": "2026-10-09T16:05:40.420459+00:00",
+  "session": "2026-10-09",
   "symbols": [
     "BBCA.JK",
     "BBRI.JK",
@@ -20,21 +20,21 @@
   ],
   "genome": "base",
   "signals": {
-    "ANTM.JK": 0.1307,
-    "ASII.JK": 0.0,
+    "ANTM.JK": 0.0,
+    "ASII.JK": -0.0,
     "BBCA.JK": 0.0,
-    "BBNI.JK": 0.0466,
-    "BBRI.JK": 0.0,
-    "BMRI.JK": 0.051,
-    "EXCL.JK": 0.1031,
-    "ICBP.JK": 0.0,
+    "BBNI.JK": 0.0,
+    "BBRI.JK": -0.0,
+    "BMRI.JK": 0.0,
+    "EXCL.JK": 0.0,
+    "ICBP.JK": -0.0,
     "INDF.JK": 0.0,
-    "KLBF.JK": 0.0,
-    "PGAS.JK": 0.0,
-    "SMGR.JK": 0.0601,
-    "TLKM.JK": 0.0871,
+    "KLBF.JK": -0.0,
+    "PGAS.JK": -0.0,
+    "SMGR.JK": 0.0,
+    "TLKM.JK": 0.0,
     "UNTR.JK": 0.0,
-    "UNVR.JK": 0.0626
+    "UNVR.JK": 0.0
   },
   "tradable": [
     "BBCA.JK",
@@ -76,10 +76,10 @@
   "sentiment_days": 0,
   "sentiment_note": "sentiment off: 0 days of history, needs 730",
   "regime": {
-    "vix": 15.08,
-    "vix_z": -0.64,
-    "spy_ret21": 0.0199,
-    "usdidr": 17885.0,
-    "usdidr_chg5": 0.0
+    "vix": 15.41,
+    "vix_z": -0.37,
+    "spy_ret21": 0.0284,
+    "usdidr": 17879.0,
+    "usdidr_chg5": -0.0024
   }
 }
