@@ -147,6 +147,7 @@ def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=Non
     challenger clears promote_margin AND promote_min_score. Champion and challengers are scored
     by the same function with the same costs, execution model and sizing. Never trades."""
     evo = cfg.get("evolution", {})
+    bt.configure_fitness(cfg.get("fitness"))
     cutoff = pd.Timestamp.now("UTC").tz_localize(None) - pd.Timedelta(days=365 * evo.get("eval_years", 2))
     pe = panel[panel["date"] >= cutoff]
     cost = cfg.get("fee_bps", 2) + cfg.get("slippage_bps", 5)
