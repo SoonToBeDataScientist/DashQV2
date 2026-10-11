@@ -40,6 +40,7 @@ def _read_cfg(path):
 
 US_CFG, IDX_CFG = _read_cfg("universe.json"), _read_cfg("universe_idx.json")
 SIZING = US_CFG.get("sizing", "equal")
+backtest.configure_fitness(US_CFG.get("fitness"))
 GH = ghactions.configured()          # UI actions go through GitHub Actions (git = source of truth)
 
 
@@ -215,8 +216,11 @@ with tab_daily:
                         unsafe_allow_html=True)
 
     w = weights_for(latest_nonan, genome.max_leverage)
+    _sz_base, _sz_tv = backtest.parse_sizing(SIZING)
     st.caption(f"Sizing: **{SIZING}**" + (" — calmer assets get a larger share of the same budget"
-                                          if SIZING == "inv_vol" else ""))
+                                          if _sz_base == "inv_vol" else "")
+               + (f" — book scaled to ~{_sz_tv:.0%} annualized volatility (up when markets are calm, "
+                  f"down when turbulent)" if _sz_tv else ""))
     st.dataframe(pd.DataFrame({"signal": latest_nonan, "target weight": w,
                                "action": latest_nonan.map(sig_label)})
                  .style.format({"signal": "{:+.2f}", "target weight": "{:+.1%}"}),
@@ -425,10 +429,19 @@ with tab_bt:
     else:
         g_bt = Genome()
 
-    c1, c2 = st.columns(2)
-    sizing_bt = c1.radio("Sizing", ["equal", "inv_vol"], index=int(SIZING == "inv_vol"),
-                         horizontal=True)
-    next_open = c2.checkbox("Stocks fill at the next open (like the live pipeline)", True,
+    c1, c2, c3 = st.columns([1.2, 1.2, 2])
+    _cfg_base, _cfg_tv = backtest.parse_sizing(SIZING)
+    base_bt = c1.radio("Sizing", ["equal", "inv_vol"], index=int(_cfg_base == "inv_vol"),
+                       horizontal=True)
+    _vt_opts = sorted({0, 4, 6, 8, 10, 12, 15, 20, round((_cfg_tv or 0) * 100)})
+    vt_bt = c2.selectbox("Target volatility", _vt_opts, index=_vt_opts.index(round((_cfg_tv or 0) * 100)),
+                         format_func=lambda v: "off" if v == 0 else f"{v}% / yr",
+                         help="Scales the whole book so its expected annualized volatility is about "
+                              "this, up in calm markets and down in turbulent ones, never beyond the "
+                              "strategy's max leverage. Sets how much exposure you take instead of "
+                              "leaving it to whatever the signal happens to size to.")
+    sizing_bt = base_bt + (f"+vt{vt_bt}" if vt_bt else "")
+    next_open = c3.checkbox("Stocks fill at the next open (like the live pipeline)", True,
                             help="Orders are sent after the close and fill at the next open, so "
                                  "the live account earns open-to-open returns on stocks.")
     if st.button("▶️ Run backtest", type="primary"):
@@ -439,7 +452,20 @@ with tab_bt:
                                         g_bt.max_leverage, allow_short, opens=opens,
                                         exec_open=tuple(stocks) if next_open else (),
                                         sizing=sizing_bt)
-        st.session_state["bt"] = {"res": res, "sig": s_bt, "name": g_bt.name}
+            frontier = []                      # same signals, several risk levels: exposure vs drawdown
+            for tv in [0, 6, 8, 10, 12, 15, 20]:
+                r_tv = backtest.run_backtest(closes, s_bt, fee_bps, slip_bps, g_bt.max_leverage,
+                                             allow_short, opens=opens,
+                                             exec_open=tuple(stocks) if next_open else (),
+                                             sizing=base_bt + (f"+vt{tv}" if tv else "")).metrics
+                frontier.append({"Target vol": "off" if tv == 0 else f"{tv}%",
+                                 "Exposure": r_tv["exposure"], "Max drawdown": r_tv["max_drawdown"],
+                                 "Total return": r_tv["total_return"], "CAGR": r_tv["cagr"],
+                                 "Sharpe": r_tv["sharpe"], "Ann. vol": r_tv["ann_vol"],
+                                 "Return / drawdown": (r_tv["total_return"] / abs(r_tv["max_drawdown"])
+                                                       if r_tv["max_drawdown"] < 0 else float("nan"))})
+        st.session_state["bt"] = {"res": res, "sig": s_bt, "name": g_bt.name,
+                                  "frontier": pd.DataFrame(frontier)}
 
     if "bt" in st.session_state:
         res, s_bt = st.session_state["bt"]["res"], st.session_state["bt"]["sig"]
@@ -450,6 +476,18 @@ with tab_bt:
                                         ("max_drawdown", "{:.1%}"), ("hit_rate", "{:.1%}"),
                                         ("exposure", "{:.1%}")]):
             col.metric(k.replace("_", " ").title(), fmt.format(m[k]))
+
+        fr = st.session_state["bt"].get("frontier")
+        if fr is not None and len(fr):
+            st.markdown("**Exposure vs drawdown** — the same signals sized to different risk levels")
+            st.dataframe(fr.style.format({"Exposure": "{:.1%}", "Max drawdown": "{:.1%}",
+                                          "Total return": "{:.1%}", "CAGR": "{:.1%}", "Sharpe": "{:.2f}",
+                                          "Ann. vol": "{:.1%}", "Return / drawdown": "{:.1f}"}),
+                         hide_index=True, use_container_width=True)
+            st.caption("Drawdown grows roughly in step with exposure, so pick the deepest drawdown you "
+                       "could sit through and read across. A higher Return / drawdown ratio is a better "
+                       "trade, not just a bigger bet. To use a row live, set `\"sizing\": "
+                       "\"<equal|inv_vol>+vt<N>\"` in universe.json, e.g. `equal+vt10`.")
 
         bench = (1 + closes.pct_change().mean(axis=1).fillna(0)).cumprod().reindex(res.equity.index).ffill()
         fig = go.Figure()
