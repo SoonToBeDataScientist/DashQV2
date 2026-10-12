@@ -1,6 +1,6 @@
 {
-  "ts": "2026-10-11T06:14:35.402645+00:00",
-  "session": "2026-10-10",
+  "ts": "2026-10-12T00:42:49.165345+00:00",
+  "session": "2026-10-11",
   "symbols": [
     "AAPL",
     "MSFT",
@@ -11,12 +11,12 @@
   ],
   "genome": "G4-4",
   "signals": {
-    "AAPL": -0.0785,
-    "BTC/USD": -0.1047,
-    "ETH/USD": -0.3041,
-    "MSFT": -0.1517,
-    "NVDA": -0.0526,
-    "SPY": 0.0
+    "AAPL": -0.1099,
+    "BTC/USD": -0.1712,
+    "ETH/USD": -0.3033,
+    "MSFT": -0.1101,
+    "NVDA": -0.0731,
+    "SPY": -0.1093
   },
   "tradable": [
     "BTC/USD",
@@ -33,12 +33,12 @@
       "ETH/USD": "alpaca+cache"
     }
   },
-  "sentiment_days": 1466,
+  "sentiment_days": 1467,
   "regime": {
     "vix": 15.41,
     "vix_z": -0.35,
     "spy_ret21": 0.0212,
-    "usdidr": 17875.0,
-    "usdidr_chg5": -0.0019
+    "usdidr": 17879.0,
+    "usdidr_chg5": -0.0017
   }
 }
