@@ -1,6 +1,6 @@
 {
-  "ts": "2026-10-14T14:28:13.595162+00:00",
-  "session": "2026-10-14",
+  "ts": "2026-10-15T14:06:59.504698+00:00",
+  "session": "2026-10-15",
   "symbols": [
     "BBCA.JK",
     "BBRI.JK",
@@ -20,20 +20,20 @@
   ],
   "genome": "base",
   "signals": {
-    "ANTM.JK": -0.0,
-    "ASII.JK": -0.0,
+    "ANTM.JK": -0.1052,
+    "ASII.JK": -0.1459,
     "BBCA.JK": -0.0,
     "BBNI.JK": -0.0,
-    "BBRI.JK": -0.0886,
+    "BBRI.JK": -0.1392,
     "BMRI.JK": -0.0,
     "EXCL.JK": 0.0,
-    "ICBP.JK": -0.0,
-    "INDF.JK": -0.0,
-    "KLBF.JK": -0.0,
-    "PGAS.JK": -0.0084,
-    "SMGR.JK": -0.0,
-    "TLKM.JK": -0.0,
-    "UNTR.JK": -0.0245,
+    "ICBP.JK": -0.1755,
+    "INDF.JK": -0.0351,
+    "KLBF.JK": -0.148,
+    "PGAS.JK": -0.0602,
+    "SMGR.JK": -0.1639,
+    "TLKM.JK": -0.0235,
+    "UNTR.JK": -0.1864,
     "UNVR.JK": -0.0
   },
   "tradable": [
@@ -42,6 +42,7 @@
     "BMRI.JK",
     "BBNI.JK",
     "TLKM.JK",
+    "ASII.JK",
     "UNVR.JK",
     "ICBP.JK",
     "KLBF.JK",
@@ -49,9 +50,8 @@
     "ANTM.JK",
     "PGAS.JK",
     "INDF.JK",
-    "UNTR.JK",
     "EXCL.JK",
-    "ASII.JK"
+    "UNTR.JK"
   ],
   "data_health": {
     "issues": [],
@@ -61,6 +61,7 @@
       "BMRI.JK": "yfinance+cache",
       "BBNI.JK": "yfinance+cache",
       "TLKM.JK": "yfinance+cache",
+      "ASII.JK": "yfinance+cache",
       "UNVR.JK": "yfinance+cache",
       "ICBP.JK": "yfinance+cache",
       "KLBF.JK": "yfinance+cache",
@@ -68,18 +69,17 @@
       "ANTM.JK": "yfinance+cache",
       "PGAS.JK": "yfinance+cache",
       "INDF.JK": "yfinance+cache",
-      "UNTR.JK": "yfinance+cache",
       "EXCL.JK": "yfinance+cache",
-      "ASII.JK": "yfinance"
+      "UNTR.JK": "yfinance"
     }
   },
   "sentiment_days": 0,
   "sentiment_note": "sentiment off: 0 days of history, needs 730",
   "regime": {
-    "vix": 15.27,
-    "vix_z": -0.4,
-    "spy_ret21": 0.0231,
-    "usdidr": 17893.0,
-    "usdidr_chg5": 0.0036
+    "vix": 16.87,
+    "vix_z": 0.95,
+    "spy_ret21": 0.0196,
+    "usdidr": 17943.0,
+    "usdidr_chg5": 0.0037
   }
 }
