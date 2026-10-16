@@ -148,15 +148,23 @@ live_model = champion.get("model") if champion else None
 # the full walk-forward backtest on every page load. That live retrain (dozens of model fits
 # across years of history, for every single visitor) is what was crashing the app on Streamlit
 # Cloud's free tier. A full on-demand recompute is still available further down, opt-in.
-latest, latest_ts = pd.Series(dtype=float), None
+latest, latest_ts, book = pd.Series(dtype=float), None, {}
 latest_path = os.path.join(DATA_DIR, "latest_signals.json")
 if os.path.exists(latest_path):
     try:
         d = json.load(open(latest_path))
         latest = pd.Series(d.get("signals", {}), dtype=float)
         latest_ts = d.get("ts")
+        book = d.get("book") or {}      # the sized portfolio the pipeline actually traded (older runs: none)
     except Exception:
         pass
+
+
+def book_weights(index) -> pd.Series | None:
+    """The pipeline's recorded target weights for `index`, or None when the last run predates them."""
+    if not book.get("weights"):
+        return None
+    return pd.Series(book["weights"], dtype=float).reindex(index).fillna(0.0)
 
 sig_hist = pd.DataFrame()
 try:
@@ -215,12 +223,30 @@ with tab_daily:
             st.markdown(f"<p style='text-align:center'>{sig_label(v)} · strength {abs(v):.0%}</p>",
                         unsafe_allow_html=True)
 
-    w = weights_for(latest_nonan, genome.max_leverage)
-    _sz_base, _sz_tv = backtest.parse_sizing(SIZING)
-    st.caption(f"Sizing: **{SIZING}**" + (" — calmer assets get a larger share of the same budget"
-                                          if _sz_base == "inv_vol" else "")
-               + (f" — book scaled to ~{_sz_tv:.0%} annualized volatility (up when markets are calm, "
-                  f"down when turbulent)" if _sz_tv else ""))
+    w = book_weights(latest_nonan.index)              # exactly what the last pipeline run traded
+    if w is None:                                     # run predates the recorded book: recompute
+        w = weights_for(latest_nonan, genome.max_leverage)
+    _sizing = book.get("sizing", SIZING)
+    _sz_base, _sz_tv = backtest.parse_sizing(_sizing)
+    _sz_tv = book.get("target_vol", _sz_tv) if book else _sz_tv
+    st.caption(f"Sizing: **{_sizing}**" + (" — calmer assets get a larger share of the same budget"
+                                           if _sz_base == "inv_vol" else "")
+               + (f" — book scaled toward a {_sz_tv:.0%} annualized volatility target (up when markets "
+                  f"are calm, down when turbulent; never beyond ×3 or the strategy's max leverage)"
+                  if _sz_tv else ""))
+    if book.get("note"):
+        st.warning(book["note"])
+    if book.get("gross") is not None:
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Gross exposure", f"{book['gross']:.1%}",
+                  f"{book['gross'] - book['base_gross']:+.1%} vs unscaled" if _sz_tv and book.get("base_gross") is not None else None)
+        k2.metric("Vol-target scale", f"×{book['scale']:.2f}" if book.get("scale") else "—")
+        k3.metric("Expected book volatility", f"{book['expected_vol']:.1%}" if book.get("expected_vol") is not None else "—",
+                  f"target {_sz_tv:.0%}" if _sz_tv else None, delta_color="off")
+        k4.metric("Max leverage", f"×{book.get('max_leverage', genome.max_leverage):g}")
+        if _sz_tv and book.get("scale") and book["scale"] >= 2.99:
+            st.caption("The ×3 cap is binding: the book is too small for the volatility target to be "
+                       "reached, so expected volatility sits below the target.")
     st.dataframe(pd.DataFrame({"signal": latest_nonan, "target weight": w,
                                "action": latest_nonan.map(sig_label)})
                  .style.format({"signal": "{:+.2f}", "target weight": "{:+.1%}"}),
@@ -310,8 +336,11 @@ with tab_lab:
     st.subheader("🧬 Strategy Lab — create strategies that adapt to the market")
     st.caption("Each candidate = model type + feature groups (incl. options/short/on-chain) + "
                "macro/sentiment toggles + horizon + thresholds + sizing. "
-               "Fitness = Sharpe − ½·|MaxDD| + a small capped activity bonus, on a strictly "
-               "out-of-sample walk-forward backtest — the same score the sitting champion gets.")
+               f"Fitness = Sharpe + {backtest.FITNESS['return_weight']:g}×CAGR − {backtest.FITNESS['dd_weight']:g}×|MaxDD| "
+               f"− {backtest.FITNESS['dd_over_weight']:g}×(drawdown beyond {backtest.FITNESS['dd_budget']:.0%}), "
+               "on a strictly out-of-sample walk-forward backtest sized with "
+               f"**{SIZING}** — the same score and sizing the sitting champion gets, so being "
+               "invested only pays when it earns, and only up to the drawdown budget.")
     method = st.radio("Search method", ["Evolution (genetic)", "Optuna (Bayesian)"], horizontal=True)
     exclude_groups = st.multiselect(
         "Exclude feature groups from search", options=list(FEATURE_GROUPS) + ["macro", "sentiment"],
@@ -547,7 +576,9 @@ with tab_paper:
         st.warning("No signals available — check the Daily tab first.")
         st.stop()
     latest_p = latest.reindex(list(bars.keys())).fillna(0)
-    w = weights_for(latest_p.clip(lower=0 if not allow_short else -1), genome.max_leverage)
+    w = book_weights(latest_p.index)                   # the book the pipeline recorded / trades
+    if w is None:
+        w = weights_for(latest_p.clip(lower=0 if not allow_short else -1), genome.max_leverage)
     crypto_syms = [s for s in w.index if asset_map.get(s) == "crypto"]
     w[crypto_syms] = w[crypto_syms].clip(lower=0)      # no crypto shorts on Alpaca
     try:
@@ -698,6 +729,41 @@ with tab_auto:
     else:
         st.info(f"Only {rep.get('n', 0)} matured observations so far — "
                 "the scheduler/pipeline accumulates them daily.")
+
+    st.divider()
+    st.markdown("#### Forward book — what the sized portfolio actually earned")
+    st.caption("Scores the weights the pipeline journaled each session (volatility-targeted sizing "
+               "included) on the prices that followed, with the backtest's own arithmetic: stocks "
+               "fill at the next open, same fees and slippage. The IC test above asks whether the "
+               "signals have an edge; this asks whether the position sizing turned it into money "
+               "at the risk you intended. It starts filling with the first pipeline run after the "
+               "sizing update.")
+    fbook = forwardtest.book_events(journal.read(JOURNAL_PATH, limit=10000), US_CFG)
+    fb = forwardtest.book_report(fbook, closes, opens, tuple(stocks), fee_bps, slip_bps)
+    if fb.get("n", 0) >= 5 and "equity" in fb:
+        fm = fb["metrics"]
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Sessions journaled", fb["n"])
+        c2.metric("Total return", f"{fm['total_return']:.2%}")
+        c3.metric("Max drawdown", f"{fm['max_drawdown']:.2%}")
+        c4.metric("Annualized volatility", f"{fm['ann_vol']:.1%}")
+        c5.metric("Average gross exposure", f"{fm['exposure']:.1%}")
+        fig_fb = go.Figure()
+        fig_fb.add_scatter(x=fb["equity"].index, y=fb["equity"], name="Sized book (journaled weights)",
+                           line=dict(color="#00C853"))
+        fig_fb.add_scatter(x=fb["bench"].index, y=fb["bench"], name="Equal-weight buy & hold",
+                           line=dict(color="#9E9E9E", dash="dash"))
+        fig_fb.update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10),
+                             legend=dict(orientation="h", y=1.1))
+        st.plotly_chart(fig_fb, use_container_width=True)
+        st.plotly_chart(px.area(fb["gross"], title="Gross exposure (share of equity)")
+                        .update_layout(height=200, showlegend=False, margin=dict(t=40)),
+                        use_container_width=True)
+        st.caption("A few weeks of results say little about Sharpe or CAGR — read exposure, "
+                   "volatility and drawdown first: is the book running at the risk you set, and is "
+                   "its drawdown in line with the backtest table?")
+    else:
+        st.info(f"{fb.get('n', 0)} journaled sessions so far — the results appear once there are 5.")
 
 
 # ================================================================ IDX
