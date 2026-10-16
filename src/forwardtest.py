@@ -76,3 +76,60 @@ def report(events, closes, horizon=5, rolling=250, session_cfg=None) -> dict:
         "edge": (df["signal"] * df["fwd_ret"]).groupby(df["date"]).mean(),
         "detail": df,
     }
+
+
+# ---------------------------------------------------------------- forward book (sized portfolio)
+def book_events(journal_df, session_cfg=None) -> pd.DataFrame:
+    """The weights the pipeline decided, as a (session date x symbol) frame from the journal's
+    "weights" events. NaN = that symbol wasn't tradable that run, so its position was left as it
+    was. If a session was run more than once (a manual run plus the scheduled one) the LAST run
+    wins. session_cfg works as in report(): a 00:40 UTC run belongs to the previous US session."""
+    recs = []
+    for _, r in journal_df.iterrows():
+        if r["kind"] != "weights":
+            continue
+        try:
+            ws = (json.loads(r["payload"]).get("weights") or {})
+        except Exception:
+            continue
+        row = {}
+        for sym, v in ws.items():
+            try:
+                row[sym] = float(v) if v is not None else float("nan")
+            except (TypeError, ValueError):
+                row[sym] = float("nan")
+        if row:
+            recs.append((pd.Timestamp(r["ts"]).tz_localize(None), row))
+    if not recs:
+        return pd.DataFrame()
+    recs.sort(key=lambda t: t[0])
+    ts = pd.Series([t for t, _ in recs])
+    if session_cfg is None:
+        dates = ts.dt.normalize()
+    else:
+        from .session import session_dates
+        dates = session_dates(session_cfg, ts)
+    df = pd.DataFrame([row for _, row in recs])
+    df.index = pd.DatetimeIndex(dates.values)
+    return df[~df.index.duplicated(keep="last")].sort_index()
+
+
+def book_report(book, closes, opens=None, exec_open=(), fee_bps=2.0, slippage_bps=5.0) -> dict:
+    """Live forward test of the SIZED portfolio: what the journaled weights earned on the prices
+    that followed, scored by backtest.evaluate_weights — the same arithmetic as the backtest
+    (next-open fills for `exec_open` stocks, the same costs). The newest decision has no realized
+    return yet, so it counts from the next session."""
+    if book is None or book.empty:
+        return {"n": 0}
+    n = len(book)
+    if n < 3:
+        return {"n": n}
+    from .backtest import evaluate_weights
+    px = closes.sort_index().ffill()
+    px = px[px.index >= book.index.min()]
+    if len(px) < 3:
+        return {"n": n}
+    res = evaluate_weights(px, book, fee_bps, slippage_bps, opens=opens, exec_open=exec_open)
+    bench = (1 + px.pct_change().mean(axis=1).fillna(0)).cumprod()
+    return {"n": n, "equity": res.equity, "drawdown": res.drawdown,
+            "gross": res.weights.abs().sum(axis=1), "metrics": res.metrics, "bench": bench}
