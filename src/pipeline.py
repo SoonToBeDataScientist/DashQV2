@@ -140,6 +140,52 @@ def data_health(bars: dict, macro, panel, genome: Genome, asset_map: dict, day,
             "sources": {x: df.attrs.get("source") for x, df in bars.items()}}
 
 
+# ---------------------------------------------------------------- sizing
+def _sized_book(recent, closes, genome, cfg, cryptos):
+    """Signals -> the portfolio this run holds, under the configured sizing (including any
+    "+vt<N>" volatility target). Computed ONCE per run: it is written to latest_signals.json (the
+    dashboard shows exactly this), journaled (the forward test scores it) and traded from, so
+    the Daily tab, the paper account and the backtest can't drift apart. Returns (book dict,
+    weights Series). If the sizing can't be applied it fails SAFE: the plain unscaled book is
+    used and the reason is recorded."""
+    sizing = cfg.get("sizing", "equal")
+    base, target_vol = bt.parse_sizing(sizing)
+    allow_short = cfg.get("allow_short", False)
+
+    def weights(sz):
+        w = bt.target_weights(recent, closes, genome.max_leverage, sz, allow_short=allow_short).iloc[-1]
+        for sym in cryptos:                                   # Alpaca: no crypto shorts
+            if sym in w:
+                w[sym] = max(w[sym], 0.0)
+        return w.fillna(0.0)
+
+    note = None
+    try:
+        w = weights(sizing)
+    except Exception as e:
+        w, note = weights(base), f"sizing '{sizing}' failed ({type(e).__name__}: {e}); traded the plain '{base}' book"
+    try:
+        base_w = weights(base) if target_vol else w
+    except Exception:
+        base_w = w
+    gross, base_gross = float(w.abs().sum()), float(base_w.abs().sum())
+    book = {"sizing": sizing if note is None else base,
+            "target_vol": target_vol if note is None else None,
+            "max_leverage": genome.max_leverage,
+            "weights": {k: round(float(v), 5) for k, v in w.items()},
+            "gross": round(gross, 4), "base_gross": round(base_gross, 4),
+            "scale": round(gross / base_gross, 3) if base_gross > 1e-9 else None,
+            "expected_vol": None}
+    try:
+        ev = bt.expected_vol(w, closes)
+        book["expected_vol"] = None if ev != ev else round(ev, 4)
+    except Exception:
+        pass
+    if note:
+        book["note"] = note
+    return book, w
+
+
 # ---------------------------------------------------------------- strategy lab
 def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=None, n_obs=0,
                               exclude_groups=(), exec_open=()):
@@ -294,9 +340,12 @@ def run(config_path="universe.json", force_evolve=False, no_trade=False,
     recent = models.recent_signals(panel, live, model)
     latest = recent.iloc[-1]
     health = data_health(bars, macro, panel, live, asset_map, day)
+    closes = pd.DataFrame({k: v["close"] for k, v in bars.items()}).sort_index().ffill()
+    book, w_book = _sized_book(recent, closes, live, cfg, cryptos)
     out["genome"] = genome.name
     out["signals"] = _clean({k: round(float(v), 4) for k, v in latest.items()})
     out["tradable"] = health["tradable"]
+    out["book"] = book
     out["data_health"] = {"issues": health["issues"], "sources": health["sources"]}
     out["sentiment_days"] = sent_days
     if live.use_sentiment != genome.use_sentiment:
@@ -315,6 +364,9 @@ def run(config_path="universe.json", force_evolve=False, no_trade=False,
     # weekend, or a symbol with broken data, is logged as None instead of a duplicate/garbage row
     journal.log(jpath, "signals", {k: (v if k in health["tradable"] else None)
                                    for k, v in out["signals"].items()})
+    journal.log(jpath, "weights", {**{k: v for k, v in book.items() if k != "weights"},
+                                   "weights": {k: (v if k in health["tradable"] else None)
+                                               for k, v in book["weights"].items()}})
     if health["issues"]:
         journal.log(jpath, "data_health", health)
 
@@ -326,12 +378,7 @@ def run(config_path="universe.json", force_evolve=False, no_trade=False,
             out["market_open"] = bool(tc.get_clock().is_open)
         except Exception:
             out["market_open"] = None
-        closes = pd.DataFrame({k: v["close"] for k, v in bars.items()}).sort_index().ffill()
-        w = bt.target_weights(recent, closes, live.max_leverage, cfg.get("sizing", "equal"),
-                              allow_short=cfg.get("allow_short", False)).iloc[-1]
-        for sym in cryptos:                                   # Alpaca: no crypto shorts
-            if sym in w:
-                w[sym] = max(w[sym], 0.0)
+        w = w_book                                            # the same book that was just recorded
         equity = float(tc.get_account().equity)
         targets = {sym: float(w[sym]) * equity for sym in health["tradable"] if sym in w}
         if targets:
