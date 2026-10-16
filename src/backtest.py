@@ -123,6 +123,32 @@ def target_weights(signals: pd.DataFrame, prices: pd.DataFrame, max_leverage=1.0
     return w
 
 
+def _asset_returns(prices: pd.DataFrame, opens: pd.DataFrame | None, exec_open=()):
+    """-> (rets, trades). rets = close-to-close returns, except `exec_open` symbols (stocks, whose
+    live orders fill at the NEXT OPEN) which earn open-to-open returns on their own trading
+    calendar. trades = bool frame of the days those symbols trade (None when exec_open is unused)."""
+    rets = prices.pct_change().fillna(0.0)
+    cols = [c for c in exec_open if opens is not None and c in opens and c in rets]
+    trades = None
+    if cols:
+        o = opens.reindex(prices.index)[cols]
+        trades = o.notna()
+        rets[cols] = o.apply(lambda s: (s.dropna().shift(-1) / s.dropna() - 1)
+                             .reindex(o.index)).fillna(0.0)
+    return rets, trades
+
+
+def _score_book(w: pd.DataFrame, rets: pd.DataFrame, fee_bps: float, slippage_bps: float) -> BacktestResult:
+    """Weights decided at each date's close -> held from the next bar, minus trading costs."""
+    w = w.shift(1).fillna(0.0)
+    turnover = w.diff().abs().sum(axis=1)
+    turnover.iloc[0] = w.iloc[0].abs().sum()
+    net = (w * rets).sum(axis=1) - turnover * (fee_bps + slippage_bps) / 1e4
+    equity = (1 + net).cumprod()
+    dd = equity / equity.cummax() - 1
+    return BacktestResult(equity, net, w, dd, _metrics(net, equity, dd, w, turnover))
+
+
 def run_backtest(prices: pd.DataFrame, signals: pd.DataFrame, fee_bps=5.0,
                  slippage_bps=5.0, max_leverage=1.0, allow_short=True,
                  opens: pd.DataFrame | None = None, exec_open=(), sizing="equal") -> BacktestResult:
@@ -132,22 +158,40 @@ def run_backtest(prices: pd.DataFrame, signals: pd.DataFrame, fee_bps=5.0,
     of close-to-close, so the overnight gap the live account can't capture isn't counted.
     Everything else (crypto) earns close-to-close."""
     prices = prices.sort_index().ffill()
-    rets = prices.pct_change().fillna(0.0)
-    cols = [c for c in exec_open if opens is not None and c in opens and c in rets]
-    trades = None
-    if cols:
-        o = opens.reindex(prices.index)[cols]
-        trades = o.notna()
-        rets[cols] = o.apply(lambda s: (s.dropna().shift(-1) / s.dropna() - 1)
-                             .reindex(o.index)).fillna(0.0)
+    rets, trades = _asset_returns(prices, opens, exec_open)
     w = target_weights(signals, prices, max_leverage, sizing, allow_short, trades)
-    w = w.shift(1).fillna(0.0)
-    turnover = w.diff().abs().sum(axis=1)
-    turnover.iloc[0] = w.iloc[0].abs().sum()
-    net = (w * rets).sum(axis=1) - turnover * (fee_bps + slippage_bps) / 1e4
-    equity = (1 + net).cumprod()
-    dd = equity / equity.cummax() - 1
-    return BacktestResult(equity, net, w, dd, _metrics(net, equity, dd, w, turnover))
+    return _score_book(w, rets, fee_bps, slippage_bps)
+
+
+def evaluate_weights(prices: pd.DataFrame, weights: pd.DataFrame, fee_bps=2.0, slippage_bps=5.0,
+                     opens: pd.DataFrame | None = None, exec_open=()) -> BacktestResult:
+    """Score a book that is ALREADY decided — e.g. the weights the live pipeline journaled — with
+    exactly the arithmetic run_backtest uses, so a forward test and a backtest are comparable.
+    weights: date x symbol, decided at that date's close; NaN = left as it was (a symbol that
+    wasn't tradable that run), and a symbol with no column is flat. Dates the price index
+    doesn't have are carried to the next date that it does."""
+    prices = prices.sort_index().ffill()
+    rets, trades = _asset_returns(prices, opens, exec_open)
+    wd = weights.sort_index()
+    w = wd.reindex(wd.index.union(prices.index)).ffill().reindex(prices.index)
+    w = w.reindex(columns=prices.columns).ffill().fillna(0.0)
+    if trades is not None:                                # stocks can only change on their own days
+        cols = [c for c in trades.columns if c in w]
+        w[cols] = w[cols].where(trades[cols].reindex(w.index).fillna(False).astype(bool)).ffill().fillna(0.0)
+    return _score_book(w, rets, fee_bps, slippage_bps)
+
+
+def expected_vol(w: pd.Series, prices: pd.DataFrame, window=60, ann=252) -> float:
+    """Annualized volatility of the portfolio `w` implied by the trailing `window` days of asset
+    returns — the number the "+vt<N>" sizing steers toward N%."""
+    cols = [c for c in w.index if c in prices.columns]
+    if not cols:
+        return float("nan")
+    R = prices.sort_index().ffill().pct_change().fillna(0.0)[cols].iloc[-window:].to_numpy(float)
+    if len(R) < 20:
+        return float("nan")
+    x = w[cols].to_numpy(float)
+    return float(np.sqrt(max(0.0, x @ np.atleast_2d(np.cov(R, rowvar=False)) @ x * ann)))
 
 
 def _metrics(r, equity, dd, w, turnover) -> dict:
