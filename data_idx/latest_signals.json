@@ -1,6 +1,6 @@
 {
-  "ts": "2026-10-15T14:06:59.504698+00:00",
-  "session": "2026-10-15",
+  "ts": "2026-10-16T13:54:31.182642+00:00",
+  "session": "2026-10-16",
   "symbols": [
     "BBCA.JK",
     "BBRI.JK",
@@ -20,21 +20,21 @@
   ],
   "genome": "base",
   "signals": {
-    "ANTM.JK": -0.1052,
-    "ASII.JK": -0.1459,
+    "ANTM.JK": -0.0,
+    "ASII.JK": -0.2367,
     "BBCA.JK": -0.0,
-    "BBNI.JK": -0.0,
-    "BBRI.JK": -0.1392,
+    "BBNI.JK": -0.0082,
+    "BBRI.JK": -0.0,
     "BMRI.JK": -0.0,
-    "EXCL.JK": 0.0,
-    "ICBP.JK": -0.1755,
-    "INDF.JK": -0.0351,
-    "KLBF.JK": -0.148,
-    "PGAS.JK": -0.0602,
-    "SMGR.JK": -0.1639,
-    "TLKM.JK": -0.0235,
-    "UNTR.JK": -0.1864,
-    "UNVR.JK": -0.0
+    "EXCL.JK": 0.0346,
+    "ICBP.JK": -0.2699,
+    "INDF.JK": -0.2704,
+    "KLBF.JK": -0.1933,
+    "PGAS.JK": -0.0024,
+    "SMGR.JK": -0.1712,
+    "TLKM.JK": -0.0,
+    "UNTR.JK": -0.2411,
+    "UNVR.JK": -0.0719
   },
   "tradable": [
     "BBCA.JK",
@@ -50,9 +50,35 @@
     "ANTM.JK",
     "PGAS.JK",
     "INDF.JK",
-    "EXCL.JK",
-    "UNTR.JK"
+    "UNTR.JK",
+    "EXCL.JK"
   ],
+  "book": {
+    "sizing": "equal",
+    "target_vol": null,
+    "max_leverage": 1.0,
+    "weights": {
+      "ANTM.JK": -0.0,
+      "ASII.JK": 0.0,
+      "BBCA.JK": -0.0,
+      "BBNI.JK": 0.0,
+      "BBRI.JK": -0.0,
+      "BMRI.JK": -0.0,
+      "EXCL.JK": 0.00231,
+      "ICBP.JK": 0.0,
+      "INDF.JK": 0.0,
+      "KLBF.JK": 0.0,
+      "PGAS.JK": 0.0,
+      "SMGR.JK": 0.0,
+      "TLKM.JK": -0.0,
+      "UNTR.JK": 0.0,
+      "UNVR.JK": 0.0
+    },
+    "gross": 0.0023,
+    "base_gross": 0.0023,
+    "scale": 1.0,
+    "expected_vol": 0.0012
+  },
   "data_health": {
     "issues": [],
     "sources": {
@@ -69,17 +95,17 @@
       "ANTM.JK": "yfinance+cache",
       "PGAS.JK": "yfinance+cache",
       "INDF.JK": "yfinance+cache",
-      "EXCL.JK": "yfinance+cache",
-      "UNTR.JK": "yfinance"
+      "UNTR.JK": "yfinance+cache",
+      "EXCL.JK": "yfinance+cache"
     }
   },
   "sentiment_days": 0,
   "sentiment_note": "sentiment off: 0 days of history, needs 730",
   "regime": {
-    "vix": 16.87,
-    "vix_z": 0.95,
-    "spy_ret21": 0.0196,
+    "vix": 16.46,
+    "vix_z": 0.67,
+    "spy_ret21": 0.0141,
     "usdidr": 17943.0,
-    "usdidr_chg5": 0.0037
+    "usdidr_chg5": 0.0076
   }
 }
