@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 import numpy as np
 import pandas as pd
 
-from .backtest import fitness, run_backtest
+from .backtest import fitness, run_backtest, window_metrics
 from .features import FEATURE_GROUPS, feature_columns
 
 try:
@@ -145,6 +145,27 @@ class SignalModel:
 
 
 # ---------------------------------------------------------------- walk-forward
+# A training row's label is the return over the NEXT `horizon` days. A row dated within `horizon`
+# days of the test block therefore has a label that contains the test block's own returns — the
+# model is trained on the answers. On pure random-walk data (nothing to predict) that alone gave
+# an out-of-sample IC of +0.063 and a Sharpe of +0.33 (-0.002 and -0.63 once removed), and it
+# rewards exactly what the lab then selects for: long horizons and many trees. Live trading never
+# had this (labels not yet known are dropped), so the backtests flattered the strategy. Purging
+# the last `horizon` days of every training window fixes it; universe.json ->
+# evolution.purge_labels = false restores the old behaviour.
+PURGE_LABELS = True
+
+
+def configure_purge(flag=True) -> bool:
+    global PURGE_LABELS
+    PURGE_LABELS = bool(flag)
+    return PURGE_LABELS
+
+
+def _train_end(i: int, horizon: int) -> int:
+    return max(0, i - horizon) if PURGE_LABELS else i
+
+
 def walk_forward_signals(panel: pd.DataFrame, genome: Genome):
     """Rolling retrain -> strictly out-of-sample daily signals (date x symbol)."""
     tcol = f"target_{genome.horizon}"
@@ -155,7 +176,7 @@ def walk_forward_signals(panel: pd.DataFrame, genome: Genome):
         return pd.DataFrame(), None
     blocks, last_model, i = [], None, genome.train_window
     while i < len(dates):
-        tr = panel[panel["date"].isin(dates[i - genome.train_window:i])].dropna(subset=[tcol])
+        tr = panel[panel["date"].isin(dates[i - genome.train_window:_train_end(i, genome.horizon)])].dropna(subset=[tcol])
         te = panel[panel["date"].isin(dates[i:i + genome.retrain_every])]
         if len(tr) >= 200 and not te.empty:
             m = SignalModel(genome).fit(tr[cols], tr[tcol])
@@ -188,7 +209,7 @@ def diagnose_walk_forward(panel: pd.DataFrame, genome: Genome) -> pd.DataFrame:
                               f"({len(dates)} dates < train_window+horizon+10)"}])
     i = genome.train_window
     while i < len(dates):
-        tr = panel[panel["date"].isin(dates[i - genome.train_window:i])].dropna(subset=[tcol])
+        tr = panel[panel["date"].isin(dates[i - genome.train_window:_train_end(i, genome.horizon)])].dropna(subset=[tcol])
         te_dates = dates[i:i + genome.retrain_every]
         te = panel[panel["date"].isin(te_dates)]
         ok = len(tr) >= 200 and not te.empty
@@ -252,6 +273,120 @@ def score_genome(panel: pd.DataFrame, g: Genome, cost_bps: float, exec_open=(), 
                      max_leverage=g.max_leverage, opens=opens, exec_open=exec_open,
                      sizing=sizing).metrics
     return fitness(m), m
+
+
+def sentiment_twin(g: Genome) -> Genome:
+    """The same strategy with news sentiment switched the other way (model, features and
+    hyperparameters untouched) — the one-variable comparison for "does sentiment help?"."""
+    stem = g.name[:-5] if g.name.endswith(("+sent", "-sent")) else g.name
+    return replace(g, use_sentiment=not g.use_sentiment,
+                   name=f"{stem}{'-sent' if g.use_sentiment else '+sent'}")
+
+
+def sentiment_information(panel: pd.DataFrame, g: Genome, alpha=300.0, block=10) -> tuple:
+    """Does news sentiment add predictive information BEYOND the features this genome already
+    uses? Two ridge regressions on next-day vol-standardized returns, walk-forward with the
+    genome's own windows — one on the genome's features, one on those plus the sentiment
+    features — and a paired comparison of what each earns out of sample (prediction x realized
+    return, averaged over symbols per day, twin minus base, in blocks of `block` days, t-tested).
+    Returns (t, n_blocks, mean daily difference); positive t = sentiment helps.
+
+    Why linear, why one-day returns: comparing two tree ensembles' backtests is dominated by
+    model-to-model noise (two near-identical models differ by +-0.5 fitness on luck alone), and
+    10-day targets overlap, throwing away most of the independent data. A ridge pair is stable,
+    and next-day returns give one independent observation per day. Measured on synthetic worlds
+    (news mood either unrelated to returns or carrying a real edge): flagged pure noise as
+    helpful in 0 of 100 runs; caught a modest real edge in roughly a third of runs and a
+    stronger one in ~80%, vs ~7% for comparing the two tree backtests. A modest edge simply
+    can't be proven from ~3 years of 6 tickers — hence the live shadow test too. Only dates
+    from the first day the news store has coverage are used (before that the sentiment columns
+    are constant and carry no information)."""
+    from sklearn.linear_model import Ridge
+    from .features import SENT_FEATURES
+    base_cols = [c for c in feature_columns(replace(g, use_sentiment=False)) if c in panel.columns]
+    sent_cols = [c for c in SENT_FEATURES if c in panel.columns]
+    if not sent_cols or "news_cnt" not in panel.columns:
+        raise ValueError("panel has no sentiment features")
+    covered = panel.loc[panel["news_cnt"] > 0, "date"]
+    if covered.empty:
+        raise ValueError("no news coverage in the panel")
+    p = panel[panel["date"] >= covered.min()].sort_values(["symbol", "date"]).copy()
+    cl = p.set_index(["symbol", "date"])["close"]
+    nxt = cl.groupby(level=0).shift(-1)
+    p["y"] = ((nxt / cl - 1).to_numpy() / p["vol_20"].replace(0, np.nan).to_numpy()).clip(-6, 6)
+    dates = np.sort(p["date"].unique())
+    edge = {"base": {}, "twin": {}}
+    for i in range(g.train_window, len(dates), g.retrain_every):
+        tr = p[p["date"].isin(dates[i - g.train_window:i])].dropna(subset=["y"])
+        te = p[p["date"].isin(dates[i:i + g.retrain_every])].dropna(subset=["y"])
+        if len(tr) < 200 or te.empty:
+            continue
+        for tag, cols in (("base", base_cols), ("twin", base_cols + sent_cols)):
+            med = tr[cols].median()
+            Xtr = tr[cols].fillna(med).fillna(0.0)
+            mu, sd = Xtr.mean(), Xtr.std().replace(0, 1.0)
+            Xtr = ((Xtr - mu) / sd).clip(-5, 5)
+            Xte = ((te[cols].fillna(med).fillna(0.0) - mu) / sd).clip(-5, 5)
+            pred = Ridge(alpha=alpha).fit(Xtr, tr["y"]).predict(Xte)
+            e = pd.Series(pred * te["y"].to_numpy(), index=te["date"].to_numpy()).groupby(level=0).mean()
+            edge[tag].update(e.to_dict())
+    d = (pd.Series(edge["twin"]) - pd.Series(edge["base"])).dropna().sort_index()
+    blocks = d.groupby(np.arange(len(d)) // block).mean()
+    if len(d) % block < block // 2 and len(blocks) > 1:
+        blocks = blocks.iloc[:-1]                         # drop a stub final block
+    if len(blocks) < 6:
+        return float("nan"), int(len(blocks)), float("nan")
+    t = float(blocks.mean() / (blocks.std(ddof=1) / np.sqrt(len(blocks)) + 1e-12))
+    return t, int(len(blocks)), float(d.mean())
+
+
+def ablate_sentiment(panel: pd.DataFrame, g: Genome, cost_bps: float, exec_open=(), sizing="equal",
+                     min_t=2.0, frames=None, info_panel=None, fitness_floor=-0.25) -> dict:
+    """Paired A/B of this genome vs the SAME genome with news sentiment switched the other way
+    (same model, features, hyperparameters) — one planned comparison, not the best of many.
+
+    Two separate questions, because a 2-year backtest can't answer the first one:
+      1. Is there information?  sentiment_information(): a low-noise linear test on the longest
+         history available (`info_panel`, default `panel`) -> info_t (positive = sentiment helps).
+      2. Would trading it be sane?  The twin's walk-forward book (sized and costed like the real
+         one, judged on the `panel` window) must not score clearly worse than the genome
+         (fitness gain >= fitness_floor).
+    `better` = the twin is the better variant: it needs |info_t| >= min_t in the right direction
+    (sentiment on: info_t >= min_t; sentiment off: info_t <= -min_t) AND question 2."""
+    prices, opens = frames or market_frames(panel)
+    twin = sentiment_twin(g)
+    runs = {}
+    for tag, gg in (("base", g), ("twin", twin)):
+        sig, _ = walk_forward_signals(panel, gg)
+        if sig.empty:
+            raise ValueError("no signals")
+        runs[tag] = sig
+    idx = runs["base"].index.intersection(runs["twin"].index)
+    if len(idx) < 60:
+        raise ValueError("too little overlapping out-of-sample history for an A/B")
+    mid = idx[len(idx) // 2]
+    tgt = (panel.pivot_table(index="date", columns="symbol", values=f"target_{g.horizon}")
+           .sort_index().reindex(idx))
+    out = {}
+    for tag, sig in runs.items():
+        sig = sig.loc[idx]
+        res = run_backtest(prices, sig, fee_bps=cost_bps / 2, slippage_bps=cost_bps / 2,
+                           max_leverage=g.max_leverage, opens=opens, exec_open=exec_open, sizing=sizing)
+        full = res.metrics
+        pair = pd.concat([sig.stack(), tgt.stack()], axis=1).dropna()
+        out[tag] = {"full": fitness(full), "h1": fitness(window_metrics(res, None, mid)),
+                    "h2": fitness(window_metrics(res, mid, None)),
+                    "exposure": full["exposure"], "sharpe": full["sharpe"],
+                    "max_drawdown": full["max_drawdown"], "cagr": full["cagr"],
+                    "ic": float(pair.iloc[:, 0].corr(pair.iloc[:, 1], method="spearman"))
+                    if len(pair) > 30 else float("nan")}
+    info_t, n_blocks, _ = sentiment_information(info_panel if info_panel is not None else panel, g)
+    info_t_twin = -info_t if g.use_sentiment else info_t          # positive = the twin is the better one
+    delta = {k: out["twin"][k] - out["base"][k] for k in ("full", "h1", "h2")}
+    return {"genome_uses_sentiment": bool(g.use_sentiment), "base": out["base"], "twin": out["twin"],
+            "delta": delta, "info_t": info_t, "info_blocks": n_blocks, "min_t": min_t,
+            "twin_genome": twin,
+            "better": bool(info_t == info_t and info_t_twin >= min_t and delta["full"] >= fitness_floor)}
 
 
 def evolve(panel: pd.DataFrame, pop_size=10, generations=4, seed=42,
