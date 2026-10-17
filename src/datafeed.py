@@ -453,18 +453,50 @@ def backfill_sentiment_store(symbols, s: Settings, path: str, backend="auto", da
     return store
 
 
+SENT_SHRINK = 2.0   # pseudo-articles of "neutral": a 1-article day counts 1/3, a 14-article day 7/8
+
+
+def _asset_group(sym: str) -> str:
+    return "crypto" if "/" in sym else "stock"      # same convention as the pipeline's asset_map
+
+
+def _day_score(mean: pd.Series, n: pd.Series, gap: pd.Series) -> pd.Series:
+    """One day's score, shrunk toward neutral when it rests on few articles (a lone Saturday
+    headline scoring +0.9 is noise, not news). A day that was scanned but had no articles is
+    neutral (0); a day nothing was scored for ANY symbol (an API outage, recorded as zero
+    articles) is unknown (NaN) so the EWM carries the last real reading instead of dragging
+    toward 0."""
+    x = (mean * n / (n + SENT_SHRINK)).where(n > 0, 0.0)
+    return x.mask(gap)
+
+
 def sentiment_features(store: pd.DataFrame, symbols, end=None) -> pd.DataFrame:
-    """Store -> wide daily frame of {sym}__sent (EWM of daily mean score, 0 on quiet days) and
-    {sym}__news (3-day article count), the columns features._join_extras expects."""
+    """Store -> wide daily frame, the columns features._join_extras expects:
+      {sym}__sent        EWM(3) of the shrunk daily mean score
+      {sym}__news        3-day article count
+      __mkt_{group}__sent  the same for the whole asset class (stocks / crypto), weighted by
+                         article count — market-wide mood, the part a single ticker's thin
+                         coverage can't tell you."""
     if store.empty:
         return pd.DataFrame()
     end = pd.Timestamp(end or _utcnow()).normalize()
     idx = pd.date_range(store["date"].min(), end, freq="D")
     base = pd.DataFrame(index=idx)
+    total = store.groupby("date")["news"].sum().reindex(idx)
+    gap = total.fillna(0) <= 0
     for sym in symbols:
         d = store[store["symbol"] == sym].set_index("date")
-        base[f"{sym}__sent"] = d["sent"].reindex(idx).fillna(0.0).ewm(span=3).mean()
-        base[f"{sym}__news"] = d["news"].reindex(idx).fillna(0.0).rolling(3, min_periods=1).sum()
+        n = d["news"].reindex(idx)
+        base[f"{sym}__sent"] = _day_score(d["sent"].reindex(idx), n, gap).ewm(span=3).mean()
+        base[f"{sym}__news"] = n.fillna(0.0).rolling(3, min_periods=1).sum()
+    for grp in sorted({_asset_group(s) for s in symbols}):
+        g = store[store["symbol"].isin([s for s in symbols if _asset_group(s) == grp])]
+        if g.empty:
+            continue
+        agg = g.assign(w=g["sent"] * g["news"]).groupby("date").agg(w=("w", "sum"), n=("news", "sum"))
+        n = agg["n"].reindex(idx)
+        mean = (agg["w"] / agg["n"].where(agg["n"] > 0)).reindex(idx)
+        base[f"__mkt_{grp}__sent"] = _day_score(mean, n, gap).ewm(span=3).mean()
     return base
 
 
