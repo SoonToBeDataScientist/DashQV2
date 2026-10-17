@@ -12,11 +12,47 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src import backtest, datafeed, exodata, features, forwardtest, ghactions, journal, models, optimize
+
+# A running Streamlit process keeps modules it already imported. After a deploy that changes
+# several files at once, app.py can be new while a src/ module in memory is still the old one
+# ("module 'src.forwardtest' has no attribute 'book_events'"). Notice that and reload the src
+# modules from disk, in dependency order, instead of crashing. Must run before the
+# `from src.<module> import <name>` lines below so they bind to the fresh modules.
+import importlib
+
+_REQUIRED = [(backtest, ("evaluate_weights", "window_metrics", "expected_vol", "configure_fitness",
+                         "FITNESS", "parse_sizing")),
+             (forwardtest, ("book_events", "book_report", "shadow_report")),
+             (models, ("ablate_sentiment", "sentiment_twin", "configure_purge")),
+             (datafeed, ("sentiment_features",))]
+
+
+def _missing():
+    return [f"{m.__name__}.{n}" for m, names in _REQUIRED for n in names if not hasattr(m, n)]
+
+
+_ORDER = (backtest, features, datafeed, exodata, models, optimize, forwardtest, journal, ghactions)
+_stale_mods = [m for m, names in _REQUIRED if any(not hasattr(m, n) for n in names)]
+if _stale_mods:
+    # reload the first stale module and everything after it in dependency order (models binds
+    # names from backtest/features at import, so those must be fresh first)
+    for _m in _ORDER[min(_ORDER.index(m) for m in _stale_mods):]:
+        try:
+            importlib.reload(_m)
+        except Exception:
+            pass
+STALE = _missing()                    # still missing after a reload = the file itself is old
 from src.config import load_settings
 from src.features import FEATURE_GROUPS, build_live_row, build_panel
 from src.models import Genome
 
 st.set_page_config(page_title="Adaptive ML Trader", page_icon="🧠", layout="wide")
+if STALE:
+    st.error("These files in the repo are older than `app.py`, so the app can't run yet: "
+             + ", ".join(f"`{x}`" for x in STALE)
+             + ". Push the matching `src/*.py` files from the same update (the module that is "
+               "named in each entry), then reboot the app.")
+    st.stop()
 settings = load_settings()
 DATA_DIR = settings.data_dir
 JOURNAL_PATH = os.path.join(DATA_DIR, "journal.db")
@@ -41,6 +77,7 @@ def _read_cfg(path):
 US_CFG, IDX_CFG = _read_cfg("universe.json"), _read_cfg("universe_idx.json")
 SIZING = US_CFG.get("sizing", "equal")
 backtest.configure_fitness(US_CFG.get("fitness"))
+models.configure_purge(US_CFG.get("evolution", {}).get("purge_labels", True))
 GH = ghactions.configured()          # UI actions go through GitHub Actions (git = source of truth)
 
 
@@ -176,6 +213,32 @@ try:
 except Exception:
     pass
 
+def last_sentiment_ab():
+    """(timestamp, result) of the newest Strategy Lab run that A/B-tested news sentiment, or None."""
+    try:
+        ev = journal.read(JOURNAL_PATH, kind="evolution", limit=60)       # newest first
+        for ts, p in zip(ev["ts"], ev["payload"]):
+            ab = json.loads(p).get("sentiment_ab")
+            if isinstance(ab, dict) and "with" in ab:
+                return pd.Timestamp(ts).strftime("%Y-%m-%d"), ab
+    except Exception:
+        pass
+    return None
+
+
+def news_mood_line() -> str:
+    """Market-wide news mood (article-weighted, per asset class) and how unusual it is vs 90 days."""
+    parts = []
+    if sent is not None and not sent.empty:
+        for grp in ("stock", "crypto"):
+            col = f"__mkt_{grp}__sent"
+            if col in sent and sent[col].notna().sum() > 60:
+                x = sent[col].dropna()
+                ref = x.iloc[-91:-1]
+                parts.append(f"{grp}s {x.iloc[-1]:+.2f} ({(x.iloc[-1] - ref.mean()) / (ref.std() + 1e-9):+.1f}σ vs 90d)")
+    return " · ".join(parts)
+
+
 tab_daily, tab_live, tab_lab, tab_bt, tab_paper, tab_auto, tab_idx = st.tabs(
     ["📊 Daily Signals", "⚡ Realtime", "🧬 Strategy Lab", "📈 Backtest",
      "💸 Paper Trading", "🤖 Automation", "🇮🇩 IDX"])
@@ -186,6 +249,18 @@ with tab_daily:
                f"retrain every {genome.retrain_every}d · dead-zone ±{genome.entry:.2f} · "
                f"macro {'✅' if genome.use_macro else '❌'} · sentiment {'✅' if genome.use_sentiment else '❌'}"
                + ("" if champion else " · *(default genome — promote one in the Lab)*"))
+    _mood, _ab = news_mood_line(), last_sentiment_ab()
+    if _mood or _ab:
+        _txt = f"News mood: {_mood}." if _mood else ""
+        if _ab:
+            _d, _r = _ab
+            _txt += (f" Sentiment A/B at the last lab run ({_d}): with news {_r['with']:+.2f} vs without "
+                     f"{_r['without']:+.2f} fitness — "
+                     + ("the lab switched to the better variant." if _r.get("better") else
+                        f"not adopted (evidence t={_r.get('info_t')}, needs {'≤ −' if _r.get('champion_uses') else '≥ '}{_r.get('min_t', 2.0)})."))
+        elif not genome.use_sentiment:
+            _txt += " The active strategy does not use news sentiment; the lab will A/B-test it on its next run."
+        st.caption(_txt.strip())
 
     if not macro.empty:
         m = macro.iloc[-1]
@@ -684,7 +759,7 @@ with tab_auto:
         st.caption("Every time the lab ran: what triggered it (scheduled / ic_panic / manual), "
                    "champion vs challenger score, the champion's live forward-test IC at "
                    "decision time, and whether a promotion happened.")
-        ev = pd.DataFrame([json.loads(p) for p in evo_events["payload"]])
+        ev = pd.json_normalize([json.loads(p) for p in evo_events["payload"]])
         ev.insert(0, "ts", pd.to_datetime(evo_events["ts"]).dt.strftime("%Y-%m-%d %H:%M"))
         st.dataframe(ev, use_container_width=True)
 
@@ -764,6 +839,42 @@ with tab_auto:
                    "its drawdown in line with the backtest table?")
     else:
         st.info(f"{fb.get('n', 0)} journaled sessions so far — the results appear once there are 5.")
+
+    st.divider()
+    st.markdown("#### Sentiment shadow test — does news sentiment actually help? (live A/B)")
+    _sh_evo = US_CFG.get("evolution", {})
+    st.caption("Every pipeline run also computes the signals of a *shadow twin*: the active strategy with news "
+               "sentiment switched the other way. It is never traded. Both are scored against the same real "
+               "forward returns — the only honest out-of-sample evidence, because a backtest on two years of "
+               "data can't tell a modest sentiment edge from noise. If the shadow is clearly better "
+               f"(t ≥ {_sh_evo.get('sentiment_min_t', 2.0):g} over ≥ {_sh_evo.get('sentiment_shadow_min_obs', 60)} "
+               "matured sessions) the lab promotes it by itself.")
+    shd = forwardtest.shadow_report(journal.read(JOURNAL_PATH, limit=20000), closes, genome.horizon,
+                                    session_cfg=US_CFG, base=genome.name,
+                                    min_obs=_sh_evo.get("sentiment_shadow_min_obs", 60),
+                                    min_t=_sh_evo.get("sentiment_min_t", 2.0))
+    if shd.get("n", 0) >= 1 and "ic_main" in shd:
+        sh_label = "with news" if shd["shadow_uses_sentiment"] else "without news"
+        ac_label = "without news" if shd["shadow_uses_sentiment"] else "with news"
+        need = shd.get("min_obs", 60)
+        if shd["n"] < need:
+            verdict = f"⏳ collecting ({shd['n']}/{need} sessions)"
+        elif shd.get("better"):
+            verdict = f"✅ {sh_label} is better — lab will adopt it"
+        elif shd.get("edge_t") == shd.get("edge_t") and shd["edge_t"] <= -shd.get("min_t", 2.0):
+            verdict = f"❌ {ac_label} is better — keep as is"
+        else:
+            verdict = "⚪ no clear difference yet"
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Matured sessions", shd["n"])
+        c2.metric(f"Live IC — active ({ac_label})", f"{shd['ic_main']:.3f}")
+        c3.metric(f"Live IC — shadow ({sh_label})", f"{shd['ic_shadow']:.3f}")
+        c4.metric("Evidence (t-stat)", "—" if shd.get("edge_t") != shd.get("edge_t") else f"{shd['edge_t']:+.2f}")
+        c5.markdown(f"**{verdict}**")
+    else:
+        st.info("No shadow results yet — the shadow runs alongside the first pipeline runs after this update "
+                "(only while the news history is long enough) and needs a couple of weeks of matured "
+                "sessions before there is anything to compare.")
 
 
 # ================================================================ IDX
