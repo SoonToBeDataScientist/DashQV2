@@ -181,6 +181,18 @@ def evaluate_weights(prices: pd.DataFrame, weights: pd.DataFrame, fee_bps=2.0, s
     return _score_book(w, rets, fee_bps, slippage_bps)
 
 
+def window_metrics(res: BacktestResult, start=None, end=None) -> dict:
+    """The same metrics as a full backtest, but over [start, end] of an already-run result — so a
+    book is sized and traded ONCE over the whole history and then judged on parts of it (e.g.
+    first half vs second half) without re-running with a cold start."""
+    r = res.returns.loc[start:end]
+    w = res.weights.loc[r.index]
+    equity = (1 + r).cumprod()
+    dd = equity / equity.cummax() - 1
+    turnover = w.diff().abs().sum(axis=1).fillna(0.0)
+    return _metrics(r, equity, dd, w, turnover)
+
+
 def expected_vol(w: pd.Series, prices: pd.DataFrame, window=60, ann=252) -> float:
     """Annualized volatility of the portfolio `w` implied by the trailing `window` days of asset
     returns — the number the "+vt<N>" sizing steers toward N%."""
