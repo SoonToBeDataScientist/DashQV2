@@ -10,10 +10,14 @@ import numpy as np
 import pandas as pd
 
 from . import backtest as bt
-from . import datafeed, exodata, journal, models, session
+from . import datafeed, exodata, forwardtest, journal, models, session
 from .config import load_settings
 from .features import FEATURE_GROUPS, build_panel, feature_columns
 from .models import Genome
+
+# t-statistic the sentiment on/off flip must reach (see models.ablate_sentiment) before the lab
+# adopts it. Override: universe.json -> evolution.sentiment_min_t.
+SENT_MIN_T = 2.0
 
 
 def _clean(d):
@@ -194,6 +198,7 @@ def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=Non
     by the same function with the same costs, execution model and sizing. Never trades."""
     evo = cfg.get("evolution", {})
     bt.configure_fitness(cfg.get("fitness"))
+    models.configure_purge(evo.get("purge_labels", True))
     cutoff = pd.Timestamp.now("UTC").tz_localize(None) - pd.Timedelta(days=365 * evo.get("eval_years", 2))
     pe = panel[panel["date"] >= cutoff]
     cost = cfg.get("fee_bps", 2) + cfg.get("slippage_bps", 5)
@@ -225,13 +230,74 @@ def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=Non
              "challenger": challenger["name"], "challenger_score": challenger["score"],
              "challenger_exposure": challenger.get("exposure"),
              "excluded": list(exclude_groups), "sizing": sizing}
-    ch_exposure = challenger.get("exposure") or 0.0
-    if (challenger["score"] > champ_score + evo.get("promote_margin", 0.05)
-            and challenger["score"] > min_score and ch_exposure >= min_exposure):
-        g = challenger["genome"]
+
+    # Sentiment A/B: the champion as it is vs the same champion with news sentiment flipped. The
+    # search above can only stumble on sentiment inside some other genome; this tests it on its
+    # own, against the model actually trading: a low-noise test for whether it adds information
+    # at all, plus a sanity check on the twin's book (see models.ablate_sentiment).
+    ab = None
+    if "sentiment" not in exclude_groups and evo.get("sentiment_ablation", True):
+        try:
+            ab = models.ablate_sentiment(pe, genome, cost, exec_open, sizing,
+                                         min_t=evo.get("sentiment_min_t", SENT_MIN_T), info_panel=panel)
+        except Exception as e:
+            event["sentiment_ab"] = {"error": f"{type(e).__name__}: {e}"[:200]}
+    if ab:
+        with_, without = (ab["base"], ab["twin"]) if ab["genome_uses_sentiment"] else (ab["twin"], ab["base"])
+        event["sentiment_ab"] = {
+            "champion_uses": ab["genome_uses_sentiment"],
+            "with": round(with_["full"], 3), "without": round(without["full"], 3),
+            "ic_with": round(with_["ic"], 3), "ic_without": round(without["ic"], 3),
+            "info_t": (round(ab["info_t"], 2) if ab["info_t"] == ab["info_t"] else None),
+            "min_t": ab["min_t"], "better": ab["better"]}
+
+    # Live shadow evidence (see run()): the real, out-of-sample answer, once enough sessions matured.
+    sh = {}
+    if "sentiment" not in exclude_groups and evo.get("sentiment_shadow", True):
+        try:
+            closes_p = panel.pivot_table(index="date", columns="symbol", values="close").sort_index()
+            sh = forwardtest.shadow_report(
+                journal.read(jpath, limit=20000), closes_p, genome.horizon, session_cfg=cfg,
+                base=genome.name, min_obs=evo.get("sentiment_shadow_min_obs", 60),
+                min_t=evo.get("sentiment_min_t", SENT_MIN_T))
+        except Exception:
+            sh = {}
+    if sh.get("n"):
+        event["sentiment_shadow"] = {
+            "sessions": sh["n"], "shadow_uses_sentiment": sh["shadow_uses_sentiment"],
+            "ic_real": round(sh["ic_main"], 3), "ic_shadow": round(sh["ic_shadow"], 3),
+            "edge_t": (round(sh["edge_t"], 2) if sh.get("edge_t") == sh.get("edge_t") else None),
+            "min_sessions": sh.get("min_obs"), "better": sh.get("better", False)}
+
+    cands = [("search", challenger)]
+    if ab and ab["better"]:
+        tw = ab["twin"]
+        cands.append(("sentiment_ab", {"genome": ab["twin_genome"], "name": ab["twin_genome"].name,
+                                       "score": round(tw["full"], 3), "exposure": round(tw["exposure"], 3)}))
+    if sh.get("better"):
+        twin_g = models.sentiment_twin(genome)
+        try:
+            tw_score, tw_m = models.score_genome(pe, twin_g, cost, exec_open, sizing)
+        except Exception:
+            tw_score, tw_m = -999.0, {}
+        cands.append(("sentiment_shadow", {"genome": twin_g, "name": twin_g.name, "score": round(tw_score, 3),
+                                           "exposure": round(float(tw_m.get("exposure") or 0.0), 3)}))
+
+    def _passes(how, c):
+        floor = c["score"] > min_score and (c.get("exposure") or 0.0) >= min_exposure
+        if how == "sentiment_shadow":              # proven live: the backtest only has to be sane
+            return floor
+        return floor and c["score"] > champ_score + evo.get("promote_margin", 0.05)
+
+    winners = [(how, c) for how, c in cands if _passes(how, c)]
+    if winners:
+        winners.sort(key=lambda t_: (t_[0] != "sentiment_shadow", -t_[1]["score"]))
+        how, best = winners[0]
+        g = best["genome"]
         save_champion(s, g, models.train_final_model(panel, g))
-        event["promoted"] = g.name
+        event["promoted"], event["promoted_via"] = g.name, how
     else:
+        ch_exposure = challenger.get("exposure") or 0.0
         event["promoted"] = None
         event["promote_blocked_reason"] = (
             "below promote_min_score" if challenger["score"] <= min_score else
@@ -369,6 +435,21 @@ def run(config_path="universe.json", force_evolve=False, no_trade=False,
                                                for k, v in book["weights"].items()}})
     if health["issues"]:
         journal.log(jpath, "data_health", health)
+
+    # Shadow twin: the same strategy with news sentiment switched the other way, run every day
+    # next to the real one but NEVER traded. Its journaled signals are scored against realized
+    # returns exactly like the real ones (forwardtest.shadow_report) — the only out-of-sample
+    # evidence on whether sentiment helps; a 2-year backtest can't tell a modest edge from noise.
+    if sent_ready and evo.get("sentiment_shadow", True):
+        try:
+            twin = models.sentiment_twin(live)
+            tsig = models.recent_signals(panel, twin, models.train_final_model(panel, twin)).iloc[-1]
+            journal.log(jpath, "shadow", {
+                "base": genome.name, "genome": twin.name, "uses_sentiment": twin.use_sentiment,
+                "signals": {k: (round(float(v), 4) if k in health["tradable"] and v == v else None)
+                            for k, v in tsig.items()}})
+        except Exception:
+            pass                                       # a failed shadow must never touch the real run
 
     # 3. paper-trade rebalance of the tradable symbols only (Alpaca queues stock orders placed
     #    after close for the next open; crypto fills now). Untradable symbols keep their position.
