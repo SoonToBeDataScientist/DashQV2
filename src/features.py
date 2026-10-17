@@ -19,7 +19,11 @@ FEATURE_GROUPS = {
 }
 MACRO_FEATURES = ["vix_lvl", "vix_chg5", "vix_z", "y10_chg5", "yc_spread", "spy_ret5",
                   "spy_ret21", "oil_ret5", "gold_ret5", "dxy_chg5", "unrate", "cons_sent"]
-SENT_FEATURES = ["sent", "sent_chg3", "sent_z", "news_cnt"]
+# sent/sent_chg3/sent_z/news_cnt: this ticker's news mood and volume. sent_mkt/sent_mkt_z: the
+# whole asset class's mood and how unusual it is (a shock detector); sent_rel: this ticker minus
+# the class (idiosyncratic news); news_surge: attention spike vs its own recent normal.
+SENT_FEATURES = ["sent", "sent_chg3", "sent_z", "news_cnt",
+                 "sent_mkt", "sent_mkt_z", "sent_rel", "news_surge"]
 HORIZONS = (3, 5, 10)
 
 
@@ -109,7 +113,14 @@ def _join_extras(f, sym, macro, sent, genome, exo=None):
         s["sent"] = bse
         s["sent_chg3"] = bse - bse.shift(3)
         s["sent_z"] = (bse - bse.rolling(20, 5).mean()) / bse.rolling(20, 5).std()
-        s["news_cnt"] = sent[cn].reindex(f.index).fillna(0.0) if cn in sent else 0.0
+        news = sent[cn].reindex(f.index).fillna(0.0) if cn in sent else pd.Series(0.0, index=f.index)
+        s["news_cnt"] = news
+        s["news_surge"] = news / news.rolling(30, 10).mean().replace(0, np.nan) - 1
+        ck = f"__mkt_{'crypto' if '/' in sym else 'stock'}__sent"
+        mkt = sent[ck].reindex(f.index) if ck in sent else pd.Series(np.nan, index=f.index)
+        s["sent_mkt"] = mkt
+        s["sent_mkt_z"] = (mkt - mkt.rolling(60, 20).mean()) / mkt.rolling(60, 20).std()
+        s["sent_rel"] = bse - mkt.fillna(0.0)
         f = f.join(s)
     if exo:
         for key in ("options_market", "onchain", "econ"):
