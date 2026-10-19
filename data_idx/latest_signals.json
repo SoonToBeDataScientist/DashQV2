@@ -1,6 +1,6 @@
 {
-  "ts": "2026-10-16T13:54:31.182642+00:00",
-  "session": "2026-10-16",
+  "ts": "2026-10-19T16:25:04.311926+00:00",
+  "session": "2026-10-19",
   "symbols": [
     "BBCA.JK",
     "BBRI.JK",
@@ -20,21 +20,21 @@
   ],
   "genome": "base",
   "signals": {
-    "ANTM.JK": -0.0,
-    "ASII.JK": -0.2367,
-    "BBCA.JK": -0.0,
-    "BBNI.JK": -0.0082,
-    "BBRI.JK": -0.0,
-    "BMRI.JK": -0.0,
-    "EXCL.JK": 0.0346,
-    "ICBP.JK": -0.2699,
-    "INDF.JK": -0.2704,
-    "KLBF.JK": -0.1933,
-    "PGAS.JK": -0.0024,
-    "SMGR.JK": -0.1712,
-    "TLKM.JK": -0.0,
-    "UNTR.JK": -0.2411,
-    "UNVR.JK": -0.0719
+    "ANTM.JK": 0.3284,
+    "ASII.JK": 0.1148,
+    "BBCA.JK": 0.31,
+    "BBNI.JK": 0.191,
+    "BBRI.JK": 0.2381,
+    "BMRI.JK": 0.208,
+    "EXCL.JK": 0.42,
+    "ICBP.JK": 0.155,
+    "INDF.JK": 0.0,
+    "KLBF.JK": 0.221,
+    "PGAS.JK": 0.1919,
+    "SMGR.JK": 0.2632,
+    "TLKM.JK": 0.3541,
+    "UNTR.JK": 0.0536,
+    "UNVR.JK": 0.2236
   },
   "tradable": [
     "BBCA.JK",
@@ -58,26 +58,26 @@
     "target_vol": null,
     "max_leverage": 1.0,
     "weights": {
-      "ANTM.JK": -0.0,
-      "ASII.JK": 0.0,
-      "BBCA.JK": -0.0,
-      "BBNI.JK": 0.0,
-      "BBRI.JK": -0.0,
-      "BMRI.JK": -0.0,
-      "EXCL.JK": 0.00231,
-      "ICBP.JK": 0.0,
+      "ANTM.JK": 0.02189,
+      "ASII.JK": 0.00765,
+      "BBCA.JK": 0.02067,
+      "BBNI.JK": 0.01274,
+      "BBRI.JK": 0.01587,
+      "BMRI.JK": 0.01387,
+      "EXCL.JK": 0.028,
+      "ICBP.JK": 0.01033,
       "INDF.JK": 0.0,
-      "KLBF.JK": 0.0,
-      "PGAS.JK": 0.0,
-      "SMGR.JK": 0.0,
-      "TLKM.JK": -0.0,
-      "UNTR.JK": 0.0,
-      "UNVR.JK": 0.0
+      "KLBF.JK": 0.01473,
+      "PGAS.JK": 0.01279,
+      "SMGR.JK": 0.01755,
+      "TLKM.JK": 0.02361,
+      "UNTR.JK": 0.00357,
+      "UNVR.JK": 0.0149
     },
-    "gross": 0.0023,
-    "base_gross": 0.0023,
+    "gross": 0.2182,
+    "base_gross": 0.2182,
     "scale": 1.0,
-    "expected_vol": 0.0012
+    "expected_vol": 0.074
   },
   "data_health": {
     "issues": [],
@@ -102,10 +102,10 @@
   "sentiment_days": 0,
   "sentiment_note": "sentiment off: 0 days of history, needs 730",
   "regime": {
-    "vix": 16.46,
-    "vix_z": 0.67,
-    "spy_ret21": 0.0141,
+    "vix": 19.99,
+    "vix_z": 3.18,
+    "spy_ret21": 0.0087,
     "usdidr": 17943.0,
-    "usdidr_chg5": 0.0076
+    "usdidr_chg5": 0.0018
   }
 }
