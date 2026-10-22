@@ -1,6 +1,6 @@
 {
-  "ts": "2026-10-21T14:27:28.988559+00:00",
-  "session": "2026-10-21",
+  "ts": "2026-10-22T14:28:36.431679+00:00",
+  "session": "2026-10-22",
   "symbols": [
     "BBCA.JK",
     "BBRI.JK",
@@ -20,25 +20,23 @@
   ],
   "genome": "base",
   "signals": {
-    "ANTM.JK": -0.0974,
-    "ASII.JK": -0.3371,
-    "BBCA.JK": -0.0911,
-    "BBNI.JK": -0.2895,
-    "BBRI.JK": -0.0154,
-    "BMRI.JK": -0.1613,
-    "EXCL.JK": -0.1508,
-    "ICBP.JK": -0.0956,
-    "INDF.JK": -0.3939,
-    "KLBF.JK": -0.1072,
-    "PGAS.JK": -0.1842,
+    "ANTM.JK": -0.0,
+    "ASII.JK": -0.1058,
+    "BBCA.JK": 0.0,
+    "BBNI.JK": -0.1988,
+    "BBRI.JK": -0.0284,
+    "BMRI.JK": -0.1015,
+    "EXCL.JK": -0.1116,
+    "ICBP.JK": -0.0,
+    "INDF.JK": -0.2067,
+    "KLBF.JK": -0.0,
+    "PGAS.JK": -0.11,
     "SMGR.JK": -0.0,
     "TLKM.JK": 0.0,
-    "UNTR.JK": -0.328,
-    "UNVR.JK": -0.1629
+    "UNTR.JK": -0.2048,
+    "UNVR.JK": -0.0
   },
   "tradable": [
-    "ASII.JK",
-    "UNTR.JK",
     "BBCA.JK",
     "BBRI.JK",
     "BMRI.JK",
@@ -51,28 +49,30 @@
     "ANTM.JK",
     "PGAS.JK",
     "INDF.JK",
-    "EXCL.JK"
+    "EXCL.JK",
+    "ASII.JK",
+    "UNTR.JK"
   ],
   "book": {
     "sizing": "equal",
     "target_vol": null,
     "max_leverage": 1.0,
     "weights": {
-      "ANTM.JK": 0.0,
+      "ANTM.JK": -0.0,
       "ASII.JK": 0.0,
       "BBCA.JK": 0.0,
       "BBNI.JK": 0.0,
       "BBRI.JK": 0.0,
       "BMRI.JK": 0.0,
       "EXCL.JK": 0.0,
-      "ICBP.JK": 0.0,
+      "ICBP.JK": -0.0,
       "INDF.JK": 0.0,
-      "KLBF.JK": 0.0,
+      "KLBF.JK": -0.0,
       "PGAS.JK": 0.0,
       "SMGR.JK": -0.0,
       "TLKM.JK": 0.0,
       "UNTR.JK": 0.0,
-      "UNVR.JK": 0.0
+      "UNVR.JK": -0.0
     },
     "gross": 0.0,
     "base_gross": 0.0,
@@ -82,30 +82,30 @@
   "data_health": {
     "issues": [],
     "sources": {
-      "ASII.JK": "yfinance+cache",
-      "UNTR.JK": "yfinance+cache",
-      "BBCA.JK": "yfinance",
-      "BBRI.JK": "yfinance",
-      "BMRI.JK": "yfinance",
-      "BBNI.JK": "yfinance",
-      "TLKM.JK": "yfinance",
-      "UNVR.JK": "yfinance",
-      "ICBP.JK": "yfinance",
-      "KLBF.JK": "yfinance",
-      "SMGR.JK": "yfinance",
-      "ANTM.JK": "yfinance",
-      "PGAS.JK": "yfinance",
-      "INDF.JK": "yfinance",
-      "EXCL.JK": "yfinance"
+      "BBCA.JK": "yfinance+cache",
+      "BBRI.JK": "yfinance+cache",
+      "BMRI.JK": "yfinance+cache",
+      "BBNI.JK": "yfinance+cache",
+      "TLKM.JK": "yfinance+cache",
+      "UNVR.JK": "yfinance+cache",
+      "ICBP.JK": "yfinance+cache",
+      "KLBF.JK": "yfinance+cache",
+      "SMGR.JK": "yfinance+cache",
+      "ANTM.JK": "yfinance+cache",
+      "PGAS.JK": "yfinance+cache",
+      "INDF.JK": "yfinance+cache",
+      "EXCL.JK": "yfinance+cache",
+      "ASII.JK": "yfinance",
+      "UNTR.JK": "yfinance"
     }
   },
   "sentiment_days": 0,
   "sentiment_note": "sentiment off: 0 days of history, needs 730",
   "regime": {
-    "vix": 17.31,
-    "vix_z": 1.45,
-    "spy_ret21": -0.0052,
+    "vix": 16.68,
+    "vix_z": 0.88,
+    "spy_ret21": -0.0056,
     "usdidr": 17943.0,
-    "usdidr_chg5": 0.0043
+    "usdidr_chg5": 0.0067
   }
 }
