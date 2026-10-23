@@ -1,6 +1,6 @@
 {
-  "ts": "2026-10-22T14:28:36.431679+00:00",
-  "session": "2026-10-22",
+  "ts": "2026-10-23T14:11:53.814764+00:00",
+  "session": "2026-10-23",
   "symbols": [
     "BBCA.JK",
     "BBRI.JK",
@@ -20,21 +20,21 @@
   ],
   "genome": "base",
   "signals": {
-    "ANTM.JK": -0.0,
-    "ASII.JK": -0.1058,
-    "BBCA.JK": 0.0,
-    "BBNI.JK": -0.1988,
-    "BBRI.JK": -0.0284,
-    "BMRI.JK": -0.1015,
-    "EXCL.JK": -0.1116,
-    "ICBP.JK": -0.0,
-    "INDF.JK": -0.2067,
-    "KLBF.JK": -0.0,
-    "PGAS.JK": -0.11,
-    "SMGR.JK": -0.0,
-    "TLKM.JK": 0.0,
-    "UNTR.JK": -0.2048,
-    "UNVR.JK": -0.0
+    "ANTM.JK": 0.0,
+    "ASII.JK": -0.0266,
+    "BBCA.JK": 0.0457,
+    "BBNI.JK": -0.1612,
+    "BBRI.JK": -0.0,
+    "BMRI.JK": -0.0,
+    "EXCL.JK": -0.0,
+    "ICBP.JK": 0.0445,
+    "INDF.JK": -0.011,
+    "KLBF.JK": 0.0,
+    "PGAS.JK": -0.0,
+    "SMGR.JK": 0.0,
+    "TLKM.JK": 0.0502,
+    "UNTR.JK": -0.1131,
+    "UNVR.JK": 0.0
   },
   "tradable": [
     "BBCA.JK",
@@ -42,6 +42,7 @@
     "BMRI.JK",
     "BBNI.JK",
     "TLKM.JK",
+    "ASII.JK",
     "UNVR.JK",
     "ICBP.JK",
     "KLBF.JK",
@@ -49,35 +50,34 @@
     "ANTM.JK",
     "PGAS.JK",
     "INDF.JK",
-    "EXCL.JK",
-    "ASII.JK",
-    "UNTR.JK"
+    "UNTR.JK",
+    "EXCL.JK"
   ],
   "book": {
     "sizing": "equal",
     "target_vol": null,
     "max_leverage": 1.0,
     "weights": {
-      "ANTM.JK": -0.0,
+      "ANTM.JK": 0.0,
       "ASII.JK": 0.0,
-      "BBCA.JK": 0.0,
+      "BBCA.JK": 0.00304,
       "BBNI.JK": 0.0,
-      "BBRI.JK": 0.0,
-      "BMRI.JK": 0.0,
-      "EXCL.JK": 0.0,
-      "ICBP.JK": -0.0,
+      "BBRI.JK": -0.0,
+      "BMRI.JK": -0.0,
+      "EXCL.JK": -0.0,
+      "ICBP.JK": 0.00297,
       "INDF.JK": 0.0,
-      "KLBF.JK": -0.0,
-      "PGAS.JK": 0.0,
-      "SMGR.JK": -0.0,
-      "TLKM.JK": 0.0,
+      "KLBF.JK": 0.0,
+      "PGAS.JK": -0.0,
+      "SMGR.JK": 0.0,
+      "TLKM.JK": 0.00335,
       "UNTR.JK": 0.0,
-      "UNVR.JK": -0.0
+      "UNVR.JK": 0.0
     },
-    "gross": 0.0,
-    "base_gross": 0.0,
-    "scale": null,
-    "expected_vol": 0.0
+    "gross": 0.0094,
+    "base_gross": 0.0094,
+    "scale": 1.0,
+    "expected_vol": 0.0036
   },
   "data_health": {
     "issues": [],
@@ -87,6 +87,7 @@
       "BMRI.JK": "yfinance+cache",
       "BBNI.JK": "yfinance+cache",
       "TLKM.JK": "yfinance+cache",
+      "ASII.JK": "yfinance+cache",
       "UNVR.JK": "yfinance+cache",
       "ICBP.JK": "yfinance+cache",
       "KLBF.JK": "yfinance+cache",
@@ -94,18 +95,17 @@
       "ANTM.JK": "yfinance+cache",
       "PGAS.JK": "yfinance+cache",
       "INDF.JK": "yfinance+cache",
-      "EXCL.JK": "yfinance+cache",
-      "ASII.JK": "yfinance",
-      "UNTR.JK": "yfinance"
+      "UNTR.JK": "yfinance+cache",
+      "EXCL.JK": "yfinance+cache"
     }
   },
   "sentiment_days": 0,
   "sentiment_note": "sentiment off: 0 days of history, needs 730",
   "regime": {
-    "vix": 16.68,
-    "vix_z": 0.88,
-    "spy_ret21": -0.0056,
-    "usdidr": 17943.0,
-    "usdidr_chg5": 0.0067
+    "vix": 19.03,
+    "vix_z": 2.6,
+    "spy_ret21": -0.009,
+    "usdidr": 17956.0,
+    "usdidr_chg5": -0.0036
   }
 }
