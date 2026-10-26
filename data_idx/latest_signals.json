@@ -1,6 +1,6 @@
 {
-  "ts": "2026-10-23T14:11:53.814764+00:00",
-  "session": "2026-10-23",
+  "ts": "2026-10-26T16:04:09.457634+00:00",
+  "session": "2026-10-26",
   "symbols": [
     "BBCA.JK",
     "BBRI.JK",
@@ -20,21 +20,21 @@
   ],
   "genome": "base",
   "signals": {
-    "ANTM.JK": 0.0,
-    "ASII.JK": -0.0266,
-    "BBCA.JK": 0.0457,
-    "BBNI.JK": -0.1612,
-    "BBRI.JK": -0.0,
+    "ANTM.JK": 0.0282,
+    "ASII.JK": -0.0,
+    "BBCA.JK": 0.231,
+    "BBNI.JK": -0.1575,
+    "BBRI.JK": 0.0,
     "BMRI.JK": -0.0,
-    "EXCL.JK": -0.0,
-    "ICBP.JK": 0.0445,
-    "INDF.JK": -0.011,
+    "EXCL.JK": 0.0,
+    "ICBP.JK": 0.1441,
+    "INDF.JK": -0.0,
     "KLBF.JK": 0.0,
-    "PGAS.JK": -0.0,
+    "PGAS.JK": 0.0,
     "SMGR.JK": 0.0,
-    "TLKM.JK": 0.0502,
-    "UNTR.JK": -0.1131,
-    "UNVR.JK": 0.0
+    "TLKM.JK": 0.0,
+    "UNTR.JK": -0.0,
+    "UNVR.JK": 0.0428
   },
   "tradable": [
     "BBCA.JK",
@@ -58,26 +58,26 @@
     "target_vol": null,
     "max_leverage": 1.0,
     "weights": {
-      "ANTM.JK": 0.0,
-      "ASII.JK": 0.0,
-      "BBCA.JK": 0.00304,
+      "ANTM.JK": 0.00188,
+      "ASII.JK": -0.0,
+      "BBCA.JK": 0.0154,
       "BBNI.JK": 0.0,
-      "BBRI.JK": -0.0,
+      "BBRI.JK": 0.0,
       "BMRI.JK": -0.0,
-      "EXCL.JK": -0.0,
-      "ICBP.JK": 0.00297,
-      "INDF.JK": 0.0,
+      "EXCL.JK": 0.0,
+      "ICBP.JK": 0.00961,
+      "INDF.JK": -0.0,
       "KLBF.JK": 0.0,
-      "PGAS.JK": -0.0,
+      "PGAS.JK": 0.0,
       "SMGR.JK": 0.0,
-      "TLKM.JK": 0.00335,
-      "UNTR.JK": 0.0,
-      "UNVR.JK": 0.0
+      "TLKM.JK": 0.0,
+      "UNTR.JK": -0.0,
+      "UNVR.JK": 0.00286
     },
-    "gross": 0.0094,
-    "base_gross": 0.0094,
+    "gross": 0.0297,
+    "base_gross": 0.0297,
     "scale": 1.0,
-    "expected_vol": 0.0036
+    "expected_vol": 0.0102
   },
   "data_health": {
     "issues": [],
@@ -102,10 +102,10 @@
   "sentiment_days": 0,
   "sentiment_note": "sentiment off: 0 days of history, needs 730",
   "regime": {
-    "vix": 19.03,
-    "vix_z": 2.6,
-    "spy_ret21": -0.009,
-    "usdidr": 17956.0,
-    "usdidr_chg5": -0.0036
+    "vix": 19.45,
+    "vix_z": 2.66,
+    "spy_ret21": -0.0078,
+    "usdidr": 17978.0,
+    "usdidr_chg5": -0.0043
   }
 }
