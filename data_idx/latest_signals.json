@@ -1,6 +1,6 @@
 {
-  "ts": "2026-10-26T16:04:09.457634+00:00",
-  "session": "2026-10-26",
+  "ts": "2026-10-27T15:17:48.033404+00:00",
+  "session": "2026-10-27",
   "symbols": [
     "BBCA.JK",
     "BBRI.JK",
@@ -20,21 +20,21 @@
   ],
   "genome": "base",
   "signals": {
-    "ANTM.JK": 0.0282,
+    "ANTM.JK": 0.0,
     "ASII.JK": -0.0,
-    "BBCA.JK": 0.231,
-    "BBNI.JK": -0.1575,
-    "BBRI.JK": 0.0,
+    "BBCA.JK": 0.1864,
+    "BBNI.JK": -0.0191,
+    "BBRI.JK": 0.0005,
     "BMRI.JK": -0.0,
-    "EXCL.JK": 0.0,
-    "ICBP.JK": 0.1441,
-    "INDF.JK": -0.0,
-    "KLBF.JK": 0.0,
-    "PGAS.JK": 0.0,
+    "EXCL.JK": -0.0,
+    "ICBP.JK": 0.1691,
+    "INDF.JK": 0.0,
+    "KLBF.JK": 0.0632,
+    "PGAS.JK": 0.0566,
     "SMGR.JK": 0.0,
     "TLKM.JK": 0.0,
-    "UNTR.JK": -0.0,
-    "UNVR.JK": 0.0428
+    "UNTR.JK": -0.0994,
+    "UNVR.JK": 0.0
   },
   "tradable": [
     "BBCA.JK",
@@ -58,26 +58,26 @@
     "target_vol": null,
     "max_leverage": 1.0,
     "weights": {
-      "ANTM.JK": 0.00188,
+      "ANTM.JK": 0.0,
       "ASII.JK": -0.0,
-      "BBCA.JK": 0.0154,
+      "BBCA.JK": 0.01243,
       "BBNI.JK": 0.0,
-      "BBRI.JK": 0.0,
+      "BBRI.JK": 3e-05,
       "BMRI.JK": -0.0,
-      "EXCL.JK": 0.0,
-      "ICBP.JK": 0.00961,
-      "INDF.JK": -0.0,
-      "KLBF.JK": 0.0,
-      "PGAS.JK": 0.0,
+      "EXCL.JK": -0.0,
+      "ICBP.JK": 0.01127,
+      "INDF.JK": 0.0,
+      "KLBF.JK": 0.00421,
+      "PGAS.JK": 0.00377,
       "SMGR.JK": 0.0,
       "TLKM.JK": 0.0,
-      "UNTR.JK": -0.0,
-      "UNVR.JK": 0.00286
+      "UNTR.JK": 0.0,
+      "UNVR.JK": 0.0
     },
-    "gross": 0.0297,
-    "base_gross": 0.0297,
+    "gross": 0.0317,
+    "base_gross": 0.0317,
     "scale": 1.0,
-    "expected_vol": 0.0102
+    "expected_vol": 0.0107
   },
   "data_health": {
     "issues": [],
@@ -102,10 +102,10 @@
   "sentiment_days": 0,
   "sentiment_note": "sentiment off: 0 days of history, needs 730",
   "regime": {
-    "vix": 19.45,
-    "vix_z": 2.66,
-    "spy_ret21": -0.0078,
-    "usdidr": 17978.0,
-    "usdidr_chg5": -0.0043
+    "vix": 18.39,
+    "vix_z": 1.87,
+    "spy_ret21": 0.0052,
+    "usdidr": 18025.0,
+    "usdidr_chg5": -0.0009
   }
 }
