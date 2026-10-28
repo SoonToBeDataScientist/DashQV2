@@ -8,10 +8,18 @@ FEATURE_GROUPS = {
     "momentum": ["ret_1", "ret_5", "ret_21", "mom_10", "rsi_14", "macd_hist", "stoch_k"],
     "volatility": ["vol_20", "atr_pct", "bb_z"],
     "volume": ["vol_ratio", "obv_slope"],
-    "options": ["vix_ts", "vix_ts_chg", "skew_lvl", "skew_chg", "vvix_lvl",
-                "pc_vol", "pc_oi", "atm_iv", "iv_skew"],
-    "short": ["short_ratio", "short_pct_float"],
-    "onchain": ["fng", "fng_chg5", "hashr_chg21", "ntx_chg21", "btc_dom"],
+    # Groups come in two kinds, and the lab must not treat them alike:
+    #   history-backed - the whole series is downloadable (^VIX/^VIX3M/^VVIX/^SKEW from Yahoo, fear &
+    #       greed and blockchain.com charts), so they are backtestable over the full window;
+    #   snapshot-backed - per-symbol readings the pipeline can only record from today on
+    #       (data/snapshots.csv), so they hold a few weeks of values until enough days pile up.
+    # They used to be lumped together ("options", "onchain"), which forced the lab to switch off
+    # the full-history half along with the short-history half.
+    "options": ["vix_ts", "vix_ts_chg", "skew_lvl", "skew_chg", "vvix_lvl"],            # market-wide, history
+    "options_snap": ["pc_vol", "pc_oi", "atm_iv", "iv_skew"],                            # per symbol, snapshot
+    "short": ["short_ratio", "short_pct_float"],                                         # per symbol, snapshot
+    "onchain": ["fng", "fng_chg5", "hashr_chg21", "ntx_chg21"],                          # crypto mood/network, history
+    "dominance": ["btc_dom"],                                                            # snapshot
     # Economic sentiment from FRED (see datafeed.get_econ_sentiment): news-based policy
     # uncertainty (daily) + University of Michigan consumer sentiment (monthly), both dated by
     # when they became available so a backtest can't see them early.
@@ -25,6 +33,19 @@ MACRO_FEATURES = ["vix_lvl", "vix_chg5", "vix_z", "y10_chg5", "yc_spread", "spy_
 SENT_FEATURES = ["sent", "sent_chg3", "sent_z", "news_cnt",
                  "sent_mkt", "sent_mkt_z", "sent_rel", "news_surge"]
 HORIZONS = (3, 5, 10)
+
+
+def thin_groups(panel: pd.DataFrame, min_cov: float = 0.6) -> list:
+    """Feature groups whose columns are mostly empty in `panel` (average share of non-missing
+    cells below `min_cov`) — snapshot groups still accumulating, or a data source that failed to
+    load. Training on them means learning from median-filled placeholders, so the lab keeps them
+    out of its search by itself and takes them back as soon as the history is there."""
+    out = []
+    for g, cols in FEATURE_GROUPS.items():
+        have = [c for c in cols if c in panel.columns]
+        if not have or float(panel[have].notna().mean().mean()) < min_cov:
+            out.append(g)
+    return out
 
 
 def feature_columns(genome) -> list:

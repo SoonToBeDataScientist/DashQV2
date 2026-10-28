@@ -31,7 +31,7 @@ def _suggest(trial, exclude_groups=()) -> Genome:
 
 def optimize(panel, n_trials=40, seed=42, cost_bps=10.0, storage=None,
              study_name="adaptive-trader", timeout=None, progress=None, exclude_groups=(),
-             exec_open=(), sizing="equal"):
+             exec_open=(), sizing="equal", allow_short=False, eval_start=None):
     import optuna
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     frames = market_frames(panel)
@@ -43,7 +43,8 @@ def optimize(panel, n_trials=40, seed=42, cost_bps=10.0, storage=None,
         g = _suggest(trial, exclude_groups)
         trial.set_user_attr("genome", asdict(g))
         try:
-            score, m = score_genome(panel, g, cost_bps, exec_open, sizing, frames)
+            score, m = score_genome(panel, g, cost_bps, exec_open, sizing, frames,
+                                    allow_short=allow_short, eval_start=eval_start)
             for k in ("sharpe", "sortino", "max_drawdown", "cagr", "hit_rate", "exposure"):
                 trial.set_user_attr(k, float(m[k]))
             return score

@@ -12,12 +12,54 @@ import pandas as pd
 from . import backtest as bt
 from . import datafeed, exodata, forwardtest, journal, models, session
 from .config import load_settings
-from .features import FEATURE_GROUPS, build_panel, feature_columns
+from .features import FEATURE_GROUPS, build_panel, feature_columns, thin_groups
 from .models import Genome
 
 # t-statistic the sentiment on/off flip must reach (see models.ablate_sentiment) before the lab
 # adopts it. Override: universe.json -> evolution.sentiment_min_t.
 SENT_MIN_T = 2.0
+
+
+def configure(cfg) -> None:
+    """Apply the config's evaluation/training switches to the modules that read them. Must run
+    before ANYTHING trains or scores: the daily live model and the lab's backtests have to use the
+    same target and the same purging, or the backtest isn't of the strategy that trades."""
+    evo = cfg.get("evolution", {})
+    bt.configure_fitness(cfg.get("fitness"))
+    models.configure_purge(evo.get("purge_labels", True))
+    models.configure_target(evo.get("target_scale", "raw"))
+
+
+def book_mode(s, cfg) -> str:
+    """"ml" (trade the champion's signals) or "hold" (trade the hold-everything book). Only
+    evolution.baseline_gate = "fallback" ever switches to hold, and only when the lab found the
+    champion clearly behind holding — see _update_book_mode. Anything unreadable means "ml"."""
+    if cfg.get("evolution", {}).get("baseline_gate", "promote") != "fallback":
+        return "ml"
+    try:
+        return "hold" if json.load(open(os.path.join(s.model_dir, "book_mode.json"))).get("mode") == "hold" else "ml"
+    except Exception:
+        return "ml"
+
+
+def _update_book_mode(s, cfg, champ_score, hold_score, champion_name) -> str | None:
+    """Fallback gate with hysteresis. Go to hold when the champion trails the hold baseline by
+    more than evolution.fallback_margin; come back to ml only once it leads by that much. In
+    between the mode stays as it was, so one noisy lab run can't flip the book back and forth."""
+    evo = cfg.get("evolution", {})
+    if evo.get("baseline_gate", "promote") != "fallback":
+        return None
+    m = float(evo.get("fallback_margin", 0.25))
+    mode = book_mode(s, cfg)
+    if champ_score <= hold_score - m:
+        mode = "hold"
+    elif champ_score >= hold_score + m:
+        mode = "ml"
+    os.makedirs(s.model_dir, exist_ok=True)
+    json.dump({"mode": mode, "ts": pd.Timestamp.now("UTC").isoformat(), "champion": champion_name,
+               "champion_score": round(float(champ_score), 3), "baseline_score": round(float(hold_score), 3),
+               "margin": m}, open(os.path.join(s.model_dir, "book_mode.json"), "w"), indent=2)
+    return mode
 
 
 def _clean(d):
@@ -197,36 +239,56 @@ def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=Non
     challenger clears promote_margin AND promote_min_score. Champion and challengers are scored
     by the same function with the same costs, execution model and sizing. Never trades."""
     evo = cfg.get("evolution", {})
-    bt.configure_fitness(cfg.get("fitness"))
-    models.configure_purge(evo.get("purge_labels", True))
-    cutoff = pd.Timestamp.now("UTC").tz_localize(None) - pd.Timedelta(days=365 * evo.get("eval_years", 2))
-    pe = panel[panel["date"] >= cutoff]
+    configure(cfg)
+    # The evaluation window starts at `cutoff`; models are trained on the history BEFORE it (the
+    # panel is ~4 years), so every genome is scored over the same ~2 years of genuinely
+    # out-of-sample days instead of burning part of the window on its own warm-up.
+    cutoff = (pd.Timestamp.now("UTC").tz_localize(None)
+              - pd.Timedelta(days=365 * evo.get("eval_years", 2))).normalize()   # a date, so the event's eval_start reproduces it
     cost = cfg.get("fee_bps", 2) + cfg.get("slippage_bps", 5)
     sizing = cfg.get("sizing", "equal")
+    allow_short = cfg.get("allow_short", False)             # score the book the account actually trades
     # Vary the seed per calendar day so each run explores new territory; still reproducible.
     seed = evo.get("seed") or int(pd.Timestamp.now("UTC").strftime("%Y%m%d"))
 
     if evo.get("method", "evolution") == "optuna":
         from . import optimize
         storage = f"sqlite:///{os.path.join(s.data_dir, 'optuna.db')}"   # warm-starts weekly
-        rows, _, _ = optimize.optimize(pe, n_trials=evo.get("trials", 25), seed=seed,
+        rows, _, _ = optimize.optimize(panel, n_trials=evo.get("trials", 25), seed=seed,
                                        cost_bps=cost, storage=storage, exclude_groups=exclude_groups,
-                                       exec_open=exec_open, sizing=sizing)
+                                       exec_open=exec_open, sizing=sizing,
+                                       allow_short=allow_short, eval_start=cutoff)
     else:
-        rows, _ = models.evolve(pe, pop_size=evo.get("pop_size", 6),
+        rows, _ = models.evolve(panel, pop_size=evo.get("pop_size", 6),
                                 generations=evo.get("generations", 2), cost_bps=cost, seed=seed,
-                                exclude_groups=exclude_groups, exec_open=exec_open, sizing=sizing)
+                                exclude_groups=exclude_groups, exec_open=exec_open, sizing=sizing,
+                                allow_short=allow_short, eval_start=cutoff,
+                                time_budget=60 * float(evo.get("lab_time_budget_min", 45)))
     try:
-        champ_score, _ = models.score_genome(pe, genome, cost, exec_open, sizing)
+        champ_score, champ_m = models.score_genome(panel, genome, cost, exec_open, sizing,
+                                                   allow_short=allow_short, eval_start=cutoff)
     except Exception:
-        champ_score = -999.0
+        champ_score, champ_m = -999.0, {}
+    try:
+        hold_score, hold_m = models.hold_baseline(panel, cost, exec_open, sizing, allow_short,
+                                                  max_leverage=genome.max_leverage, eval_start=cutoff)
+    except Exception:
+        hold_score, hold_m = None, {}
     challenger = rows[0]
     min_score = evo.get("promote_min_score", 0.0)
     min_exposure = evo.get("promote_min_exposure", 0.10)
-    event = {"trigger": trigger, "seed": seed, "champion": genome.name,
-             "champion_score": round(champ_score, 3),
+    gate = evo.get("baseline_gate", "promote")             # off | promote | fallback
+    base_floor = (hold_score + float(evo.get("baseline_margin", 0.0))
+                  if gate != "off" and hold_score is not None else None)
+    _met = lambda m: {k: (round(float(m[k]), 3) if m.get(k) is not None else None)
+                      for k in ("sharpe", "cagr", "max_drawdown", "exposure")} if m else None
+    event = {"trigger": trigger, "seed": seed, "eval_version": 2, "eval_start": f"{cutoff:%Y-%m-%d}",
+             "allow_short": allow_short, "champion": genome.name,
+             "champion_score": round(champ_score, 3), "champion_metrics": _met(champ_m),
              "champion_live_ic": (round(live_ic, 3) if live_ic is not None else None),
              "champion_live_obs": n_obs,
+             "baseline": ({"score": round(hold_score, 3), **_met(hold_m)} if hold_score is not None else None),
+             "baseline_gate": gate,
              "challenger": challenger["name"], "challenger_score": challenger["score"],
              "challenger_exposure": challenger.get("exposure"),
              "excluded": list(exclude_groups), "sizing": sizing}
@@ -238,8 +300,9 @@ def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=Non
     ab = None
     if "sentiment" not in exclude_groups and evo.get("sentiment_ablation", True):
         try:
-            ab = models.ablate_sentiment(pe, genome, cost, exec_open, sizing,
-                                         min_t=evo.get("sentiment_min_t", SENT_MIN_T), info_panel=panel)
+            ab = models.ablate_sentiment(panel, genome, cost, exec_open, sizing,
+                                         min_t=evo.get("sentiment_min_t", SENT_MIN_T), info_panel=panel,
+                                         allow_short=allow_short, eval_start=cutoff)
         except Exception as e:
             event["sentiment_ab"] = {"error": f"{type(e).__name__}: {e}"[:200]}
     if ab:
@@ -277,7 +340,8 @@ def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=Non
     if sh.get("better"):
         twin_g = models.sentiment_twin(genome)
         try:
-            tw_score, tw_m = models.score_genome(pe, twin_g, cost, exec_open, sizing)
+            tw_score, tw_m = models.score_genome(panel, twin_g, cost, exec_open, sizing,
+                                                 allow_short=allow_short, eval_start=cutoff)
         except Exception:
             tw_score, tw_m = -999.0, {}
         cands.append(("sentiment_shadow", {"genome": twin_g, "name": twin_g.name, "score": round(tw_score, 3),
@@ -287,6 +351,8 @@ def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=Non
         floor = c["score"] > min_score and (c.get("exposure") or 0.0) >= min_exposure
         if how == "sentiment_shadow":              # proven live: the backtest only has to be sane
             return floor
+        if base_floor is not None and c["score"] <= base_floor:
+            return False                           # a model that can't beat just holding has no business trading
         return floor and c["score"] > champ_score + evo.get("promote_margin", 0.05)
 
     winners = [(how, c) for how, c in cands if _passes(how, c)]
@@ -296,12 +362,18 @@ def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=Non
         g = best["genome"]
         save_champion(s, g, models.train_final_model(panel, g))
         event["promoted"], event["promoted_via"] = g.name, how
+        champ_score = best["score"]
     else:
         ch_exposure = challenger.get("exposure") or 0.0
         event["promoted"] = None
         event["promote_blocked_reason"] = (
             "below promote_min_score" if challenger["score"] <= min_score else
-            "below promote_min_exposure" if ch_exposure < min_exposure else None)
+            "below promote_min_exposure" if ch_exposure < min_exposure else
+            "below hold baseline" if base_floor is not None and challenger["score"] <= base_floor else None)
+    if hold_score is not None:
+        mode = _update_book_mode(s, cfg, champ_score, hold_score, event.get("promoted") or genome.name)
+        if mode:
+            event["book_mode"] = mode
     journal.log(jpath, "evolution", event)
     return event
 
@@ -323,8 +395,14 @@ def _effective(genome: Genome, sent_ready: bool) -> Genome:
     return genome if sent_ready or not genome.use_sentiment else replace(genome, use_sentiment=False)
 
 
-def _exclusions(cfg, sent_ready: bool) -> tuple:
-    ex = tuple(cfg.get("evolution", {}).get("exclude_feature_groups", []))
+def _exclusions(cfg, sent_ready: bool, panel=None) -> tuple:
+    """Feature groups the lab may not search over: the ones listed in the config, plus (given the
+    panel) any group that is mostly empty right now — a snapshot group still accumulating, or a
+    data source that failed to load — which unlock by themselves once the history is there."""
+    evo = cfg.get("evolution", {})
+    ex = tuple(evo.get("exclude_feature_groups", []))
+    if panel is not None:
+        ex += tuple(g for g in thin_groups(panel, float(evo.get("min_group_coverage", 0.6))) if g not in ex)
     return ex if sent_ready else ex + ("sentiment",)
 
 
@@ -334,6 +412,7 @@ def check_intraday(config_path="universe.json") -> dict | None:
     and the lab hasn't already run this session. The daily run() performs the same check."""
     s = load_settings()
     cfg = json.load(open(config_path))
+    configure(cfg)
     evo = cfg.get("evolution", {})
     if not (evo.get("enabled") and evo.get("intraday_reaction", True)):
         return None
@@ -365,13 +444,14 @@ def check_intraday(config_path="universe.json") -> dict | None:
     full = Genome(feature_groups=tuple(FEATURE_GROUPS), use_macro=True, use_sentiment=True)
     panel = build_panel(bars, macro, sent, full, exo)
     return _search_and_maybe_promote(s, cfg, panel, _effective(genome, sent_ready), jpath,
-                                     "ic_panic", live_ic, n_obs, _exclusions(cfg, sent_ready), stocks)
+                                     "ic_panic", live_ic, n_obs, _exclusions(cfg, sent_ready, panel), stocks)
 
 
 def run(config_path="universe.json", force_evolve=False, no_trade=False,
         promote: Genome | None = None, skip_if_done=False) -> dict:
     s = load_settings()
     cfg = json.load(open(config_path))
+    configure(cfg)
     evo = cfg.get("evolution", {})
     stocks, cryptos, symbols, asset_map = _universe(cfg)
     start = dt.datetime.utcnow() - dt.timedelta(days=365 * cfg.get("years", 4))
@@ -407,7 +487,13 @@ def run(config_path="universe.json", force_evolve=False, no_trade=False,
     latest = recent.iloc[-1]
     health = data_health(bars, macro, panel, live, asset_map, day)
     closes = pd.DataFrame({k: v["close"] for k, v in bars.items()}).sort_index().ffill()
-    book, w_book = _sized_book(recent, closes, live, cfg, cryptos)
+    # What gets traded: the champion's signals — or, only under baseline_gate = "fallback" and only
+    # while the lab has found the champion clearly behind holding, the hold-everything book. The
+    # champion's own signals are journaled either way, so its forward test (live IC) keeps going.
+    mode = book_mode(s, cfg)
+    traded = recent if mode == "ml" else pd.DataFrame(1.0, index=recent.index, columns=recent.columns)
+    book, w_book = _sized_book(traded, closes, live, cfg, cryptos)
+    book["mode"] = mode
     out["genome"] = genome.name
     out["signals"] = _clean({k: round(float(v), 4) for k, v in latest.items()})
     out["tradable"] = health["tradable"]
@@ -478,7 +564,7 @@ def run(config_path="universe.json", force_evolve=False, no_trade=False,
             trigger = "manual" if force_evolve else ("ic_panic" if ic_panic and not due else "scheduled")
             out["evolution"] = _search_and_maybe_promote(
                 s, cfg, panel, live, jpath, trigger, live_ic, n_obs,
-                _exclusions(cfg, sent_ready), stocks)
+                _exclusions(cfg, sent_ready, panel), stocks)
     return out
 
 

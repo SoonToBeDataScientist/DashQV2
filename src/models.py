@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import asdict, dataclass, replace
 
 import numpy as np
@@ -166,25 +167,77 @@ def _train_end(i: int, horizon: int) -> int:
     return max(0, i - horizon) if PURGE_LABELS else i
 
 
-def walk_forward_signals(panel: pd.DataFrame, genome: Genome):
-    """Rolling retrain -> strictly out-of-sample daily signals (date x symbol)."""
-    tcol = f"target_{genome.horizon}"
+# What the model is asked to predict. "raw": the forward return, as before. "vol": that return
+# divided by the asset's own recent volatility (vol_20 * sqrt(horizon)), i.e. "how many of its own
+# standard deviations will it move". A pooled model trained on raw returns spends its capacity on
+# whichever assets are most volatile (BTC moves ~3x AAPL, so it dominates a squared-error loss) and
+# its signal strength isn't comparable across assets. On 20 real stocks (1997-2022, walk-forward,
+# long-only) scaling the target lifted Sharpe by +0.25 (90% CI +0.11..+0.39); on 6 similar stocks
+# it made no difference. universe.json -> evolution.target_scale = "raw" restores the old target.
+TARGET_SCALE = "raw"
+
+
+def configure_target(mode="raw") -> str:
+    global TARGET_SCALE
+    TARGET_SCALE = "vol" if str(mode).lower() in ("vol", "volatility", "scaled") else "raw"
+    return TARGET_SCALE
+
+
+def _target(d: pd.DataFrame, horizon: int) -> pd.Series:
+    y = d[f"target_{horizon}"]
+    if TARGET_SCALE == "vol":
+        y = y / (d["vol_20"].clip(lower=0.003) * np.sqrt(horizon))
+    return y.replace([np.inf, -np.inf], np.nan)
+
+
+def _xy(d: pd.DataFrame, genome: "Genome", cols: list):
+    """Training rows with a known label -> (features, target)."""
+    y = _target(d, genome.horizon)
+    ok = y.notna()
+    return d.loc[ok, cols], y[ok]
+
+
+def _block_bounds(dates, retrain_every: int) -> list:
+    """[(first, end)) index ranges of the retrain blocks, on a CALENDAR grid: a block is every
+    `retrain_every` calendar days (weekdays when the panel has no weekend rows, e.g. stocks only),
+    counted from 1970. The old grid counted from the first row of whatever panel it was handed, so
+    a score changed whenever the window moved by a single day — the retrain dates all shifted and
+    every model was refit on a different sample (a champion's score swung by +-0.5 overnight with
+    nothing new to learn). On this grid the signals for a past date don't change as data arrives."""
+    d = pd.DatetimeIndex(dates)
+    days = d.values.astype("datetime64[D]")
+    if (d.dayofweek >= 5).any():
+        n = days.astype(np.int64)
+    else:
+        n = np.busday_count(np.datetime64("1970-01-01"), days)
+    bid = np.asarray(n) // max(1, int(retrain_every))
+    cuts = np.flatnonzero(np.r_[True, bid[1:] != bid[:-1]])
+    return list(zip(cuts.tolist(), np.r_[cuts[1:], len(d)].tolist()))
+
+
+def walk_forward_signals(panel: pd.DataFrame, genome: Genome, start=None):
+    """Rolling retrain -> strictly out-of-sample daily signals (date x symbol).
+    start: only produce signals from this date on (the training windows may reach back before it),
+    so every genome can be judged on the same dates regardless of how much history it trains on."""
     cols = [c for c in feature_columns(genome) if c in panel.columns]
     panel = panel.sort_values("date").reset_index(drop=True)
     dates = np.sort(panel["date"].unique())
     if len(dates) < genome.train_window + genome.horizon + 10:
         return pd.DataFrame(), None
-    blocks, last_model, i = [], None, genome.train_window
-    while i < len(dates):
-        tr = panel[panel["date"].isin(dates[i - genome.train_window:_train_end(i, genome.horizon)])].dropna(subset=[tcol])
-        te = panel[panel["date"].isin(dates[i:i + genome.retrain_every])]
-        if len(tr) >= 200 and not te.empty:
-            m = SignalModel(genome).fit(tr[cols], tr[tcol])
+    t0 = None if start is None else np.datetime64(pd.Timestamp(start))
+    blocks, last_model = [], None
+    for i, j in _block_bounds(dates, genome.retrain_every):
+        if i < genome.train_window or (t0 is not None and dates[j - 1] < t0):
+            continue
+        tr = panel[panel["date"].isin(dates[i - genome.train_window:_train_end(i, genome.horizon)])]
+        X, y = _xy(tr, genome, cols)
+        te = panel[panel["date"].isin(dates[i:j])]
+        if len(X) >= 200 and not te.empty:
+            m = SignalModel(genome).fit(X, y)
             blocks.append(pd.DataFrame({"date": te["date"].values,
                                         "symbol": te["symbol"].values,
                                         "signal": m.predict_signal(te[cols])}))
             last_model = m
-        i += genome.retrain_every
     if not blocks:
         return pd.DataFrame(), None
     sig = pd.concat(blocks).pivot_table(index="date", columns="symbol", values="signal").sort_index()
@@ -192,14 +245,15 @@ def walk_forward_signals(panel: pd.DataFrame, genome: Genome):
         sig = sig.ewm(span=genome.smooth).mean()
     v = sig.to_numpy(dtype=float)  # linear dead-zone remap keeps continuity
     v = np.sign(v) * np.clip((np.abs(v) - genome.entry) / max(1e-9, 1 - genome.entry), 0, None)
-    return pd.DataFrame(v, index=sig.index, columns=sig.columns), last_model
+    out = pd.DataFrame(v, index=sig.index, columns=sig.columns)
+    return (out.loc[pd.Timestamp(start):] if start is not None else out), last_model
 
 
 def diagnose_walk_forward(panel: pd.DataFrame, genome: Genome) -> pd.DataFrame:
     """Same window loop as walk_forward_signals, but reports per-window pass/skip instead of
     training anything — lets you see exactly which retrain windows produced no signal, and why,
     without re-running (and paying for) the real fit each time."""
-    tcol = f"target_{genome.horizon}"
+    cols = [c for c in feature_columns(genome) if c in panel.columns]
     panel = panel.sort_values("date").reset_index(drop=True)
     dates = np.sort(panel["date"].unique())
     rows = []
@@ -207,29 +261,29 @@ def diagnose_walk_forward(panel: pd.DataFrame, genome: Genome) -> pd.DataFrame:
         return pd.DataFrame([{"test_start": None, "test_end": None, "train_rows": 0,
                               "status": "skipped", "reason": "not enough history at all "
                               f"({len(dates)} dates < train_window+horizon+10)"}])
-    i = genome.train_window
-    while i < len(dates):
-        tr = panel[panel["date"].isin(dates[i - genome.train_window:_train_end(i, genome.horizon)])].dropna(subset=[tcol])
-        te_dates = dates[i:i + genome.retrain_every]
+    for i, j in _block_bounds(dates, genome.retrain_every):
+        if i < genome.train_window:
+            continue
+        tr = panel[panel["date"].isin(dates[i - genome.train_window:_train_end(i, genome.horizon)])]
+        X, _ = _xy(tr, genome, cols)
+        te_dates = dates[i:j]
         te = panel[panel["date"].isin(te_dates)]
-        ok = len(tr) >= 200 and not te.empty
+        ok = len(X) >= 200 and not te.empty
         reason = ("ok" if ok else
-                 ("training rows below 200 after dropping NaN targets" if len(tr) < 200
+                 ("training rows below 200 after dropping NaN targets" if len(X) < 200
                   else "no test rows in this window (symbols missing data here?)"))
         rows.append({"test_start": pd.Timestamp(te_dates[0]) if len(te_dates) else None,
                      "test_end": pd.Timestamp(te_dates[-1]) if len(te_dates) else None,
-                     "train_rows": len(tr), "status": "ok" if ok else "skipped", "reason": reason})
-        i += genome.retrain_every
+                     "train_rows": len(X), "status": "ok" if ok else "skipped", "reason": reason})
     return pd.DataFrame(rows)
 
 
 def train_final_model(panel: pd.DataFrame, genome: Genome) -> SignalModel:
-    tcol = f"target_{genome.horizon}"
     cols = [c for c in feature_columns(genome) if c in panel.columns]
-    d = panel.dropna(subset=[tcol])
+    d = panel[_target(panel, genome.horizon).notna()]
     dates = np.sort(d["date"].unique())[-genome.train_window:]
-    tr = d[d["date"].isin(dates)]
-    return SignalModel(genome).fit(tr[cols], tr[tcol])
+    X, y = _xy(d[d["date"].isin(dates)], genome, cols)
+    return SignalModel(genome).fit(X, y)
 
 
 def recent_signals(panel: pd.DataFrame, genome: Genome, model: SignalModel,
@@ -262,16 +316,41 @@ def market_frames(panel: pd.DataFrame):
 
 
 def score_genome(panel: pd.DataFrame, g: Genome, cost_bps: float, exec_open=(), sizing="equal",
-                 frames=None):
+                 frames=None, allow_short=False, eval_start=None):
     """Walk-forward backtest of one genome -> (fitness, metrics). The one evaluation path used
-    for challengers AND the sitting champion."""
+    for challengers AND the sitting champion.
+    allow_short: score the book the account can actually hold. (This used to be left at
+    run_backtest's default of True, so the lab picked genomes for a long/short book while the
+    live account — allow_short false — only ever traded the long side.)
+    eval_start: judge on the dates from here on, with models trained on the history before it
+    (`panel` should reach back far enough), so genomes with different training windows are scored
+    over exactly the same days and none of them is diluted by a flat warm-up."""
     prices, opens = frames or market_frames(panel)
-    sig, _ = walk_forward_signals(panel, g)
+    sig, _ = walk_forward_signals(panel, g, start=eval_start)
     if sig.empty:
         raise ValueError("no signals")
     m = run_backtest(prices, sig, fee_bps=cost_bps / 2, slippage_bps=cost_bps / 2,
-                     max_leverage=g.max_leverage, opens=opens, exec_open=exec_open,
-                     sizing=sizing).metrics
+                     max_leverage=g.max_leverage, allow_short=allow_short, opens=opens,
+                     exec_open=exec_open, sizing=sizing).metrics
+    return fitness(m), m
+
+
+def hold_baseline(panel: pd.DataFrame, cost_bps: float, exec_open=(), sizing="equal",
+                  allow_short=False, max_leverage=1.0, frames=None, eval_start=None):
+    """The yardstick every strategy has to beat: hold EVERY asset long all the time, sized, costed
+    and executed exactly like the strategy (same sizing string — so the same volatility target —
+    same fees, same next-open fills), over the same dates -> (fitness, metrics). max_leverage is
+    the gross-exposure cap — pass the strategy's own, so both are held to the same risk limit.
+    On 20 real stocks (1997-2022) the walk-forward models did not beat this, so a model that can't
+    is just adding cost and risk of being wrong; the lab and the backtest report it next to
+    every strategy."""
+    prices, opens = frames or market_frames(panel)
+    sig = pd.DataFrame(1.0, index=prices.index, columns=prices.columns)
+    if eval_start is not None:
+        sig = sig.loc[pd.Timestamp(eval_start):]
+    m = run_backtest(prices, sig, fee_bps=cost_bps / 2, slippage_bps=cost_bps / 2,
+                     max_leverage=max_leverage, allow_short=allow_short, opens=opens,
+                     exec_open=exec_open, sizing=sizing).metrics
     return fitness(m), m
 
 
@@ -341,7 +420,8 @@ def sentiment_information(panel: pd.DataFrame, g: Genome, alpha=300.0, block=10)
 
 
 def ablate_sentiment(panel: pd.DataFrame, g: Genome, cost_bps: float, exec_open=(), sizing="equal",
-                     min_t=2.0, frames=None, info_panel=None, fitness_floor=-0.25) -> dict:
+                     min_t=2.0, frames=None, info_panel=None, fitness_floor=-0.25,
+                     allow_short=False, eval_start=None) -> dict:
     """Paired A/B of this genome vs the SAME genome with news sentiment switched the other way
     (same model, features, hyperparameters) — one planned comparison, not the best of many.
 
@@ -357,7 +437,7 @@ def ablate_sentiment(panel: pd.DataFrame, g: Genome, cost_bps: float, exec_open=
     twin = sentiment_twin(g)
     runs = {}
     for tag, gg in (("base", g), ("twin", twin)):
-        sig, _ = walk_forward_signals(panel, gg)
+        sig, _ = walk_forward_signals(panel, gg, start=eval_start)
         if sig.empty:
             raise ValueError("no signals")
         runs[tag] = sig
@@ -371,7 +451,8 @@ def ablate_sentiment(panel: pd.DataFrame, g: Genome, cost_bps: float, exec_open=
     for tag, sig in runs.items():
         sig = sig.loc[idx]
         res = run_backtest(prices, sig, fee_bps=cost_bps / 2, slippage_bps=cost_bps / 2,
-                           max_leverage=g.max_leverage, opens=opens, exec_open=exec_open, sizing=sizing)
+                           max_leverage=g.max_leverage, allow_short=allow_short, opens=opens,
+                           exec_open=exec_open, sizing=sizing)
         full = res.metrics
         pair = pd.concat([sig.stack(), tgt.stack()], axis=1).dropna()
         out[tag] = {"full": fitness(full), "h1": fitness(window_metrics(res, None, mid)),
@@ -391,10 +472,15 @@ def ablate_sentiment(panel: pd.DataFrame, g: Genome, cost_bps: float, exec_open=
 
 def evolve(panel: pd.DataFrame, pop_size=10, generations=4, seed=42,
            cost_bps=10.0, progress=None, exclude_groups=(), exec_open=(), sizing="equal",
-           on_eval=None):
+           on_eval=None, allow_short=False, eval_start=None, time_budget=None):
     """Genetic search, ranked by backtest.fitness on a walk-forward backtest.
     exclude_groups: feature groups withheld from the search space (e.g. options/short/onchain
-    while their real snapshot history is still too short to be meaningful)."""
+    while their real snapshot history is still too short to be meaningful).
+    time_budget: seconds. Judging every genome over the same two years costs more than the old
+    window did (a long-window genome used to be scored on a few months), and the daily workflow
+    has a hard time limit; once the budget is spent the search stops after the generation in
+    progress and ranks what it has instead of starting another."""
+    t_start = time.time()
     rng = np.random.default_rng(seed)
     frames = market_frames(panel)
     cache: dict = {}
@@ -402,7 +488,8 @@ def evolve(panel: pd.DataFrame, pop_size=10, generations=4, seed=42,
     def evaluate(g: Genome):
         if g.key() not in cache:
             try:
-                cache[g.key()] = score_genome(panel, g, cost_bps, exec_open, sizing, frames)
+                cache[g.key()] = score_genome(panel, g, cost_bps, exec_open, sizing, frames,
+                                              allow_short=allow_short, eval_start=eval_start)
             except Exception:
                 cache[g.key()] = (-999.0, {})
         return cache[g.key()]
@@ -421,13 +508,16 @@ def evolve(panel: pd.DataFrame, pop_size=10, generations=4, seed=42,
         return out
 
     pop = [random_genome(rng, f"G0-{i}", exclude_groups) for i in range(pop_size)]
-    history = []
+    history, stage = [], generations
     for gen in range(generations):
         scored = sorted(score_pop(pop, gen), key=lambda t: t[1][0], reverse=True)
         history.append({"generation": gen, "best": scored[0][1][0],
                         "avg": float(np.mean([s[1][0] for s in scored]))})
         if progress:
             progress(gen, generations, scored[0][1][0], scored[0][0])
+        if time_budget and time.time() - t_start > time_budget and gen < generations - 1:
+            stage = gen                                  # out of time: rank this generation as the final one
+            break
         elites = [g for g, _ in scored[: max(2, pop_size // 4)]]
         nxt = [Genome(**asdict(e)) for e in elites]
         while len(nxt) < pop_size:
@@ -438,7 +528,7 @@ def evolve(panel: pd.DataFrame, pop_size=10, generations=4, seed=42,
         pop = nxt
 
     rows = []
-    for g, (score, m) in sorted(score_pop(pop, generations), key=lambda t: t[1][0], reverse=True):
+    for g, (score, m) in sorted(score_pop(pop, stage), key=lambda t: t[1][0], reverse=True):
         rows.append({"genome": g, "name": g.name, "score": round(score, 3),
                      **{k: (round(m[k], 3) if m.get(k) is not None else None)
                         for k in ["sharpe", "sortino", "max_drawdown", "cagr", "hit_rate", "exposure"]},

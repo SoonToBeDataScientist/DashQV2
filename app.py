@@ -23,7 +23,9 @@ import importlib
 _REQUIRED = [(backtest, ("evaluate_weights", "window_metrics", "expected_vol", "configure_fitness",
                          "FITNESS", "parse_sizing")),
              (forwardtest, ("book_events", "book_report", "shadow_report")),
-             (models, ("ablate_sentiment", "sentiment_twin", "configure_purge")),
+             (features, ("thin_groups",)),
+             (models, ("ablate_sentiment", "sentiment_twin", "configure_purge", "configure_target",
+                       "hold_baseline")),
              (datafeed, ("sentiment_features",))]
 
 
@@ -78,6 +80,7 @@ US_CFG, IDX_CFG = _read_cfg("universe.json"), _read_cfg("universe_idx.json")
 SIZING = US_CFG.get("sizing", "equal")
 backtest.configure_fitness(US_CFG.get("fitness"))
 models.configure_purge(US_CFG.get("evolution", {}).get("purge_labels", True))
+models.configure_target(US_CFG.get("evolution", {}).get("target_scale", "raw"))
 GH = ghactions.configured()          # UI actions go through GitHub Actions (git = source of truth)
 
 
@@ -226,6 +229,19 @@ def last_sentiment_ab():
     return None
 
 
+def last_baseline():
+    """(date, lab event) of the newest Strategy Lab run that scored the hold-everything baseline."""
+    try:
+        ev = journal.read(JOURNAL_PATH, kind="evolution", limit=60)       # newest first
+        for ts, p in zip(ev["ts"], ev["payload"]):
+            d = json.loads(p)
+            if isinstance(d.get("baseline"), dict) and "score" in d["baseline"]:
+                return pd.Timestamp(ts).strftime("%Y-%m-%d"), d
+    except Exception:
+        pass
+    return None
+
+
 def news_mood_line() -> str:
     """Market-wide news mood (article-weighted, per asset class) and how unusual it is vs 90 days."""
     parts = []
@@ -261,6 +277,21 @@ with tab_daily:
         elif not genome.use_sentiment:
             _txt += " The active strategy does not use news sentiment; the lab will A/B-test it on its next run."
         st.caption(_txt.strip())
+    _lb = last_baseline()
+    if _lb:
+        _d, _e = _lb
+        _b, _cm = _e["baseline"], _e.get("champion_metrics") or {}
+        _gap = _e["champion_score"] - _b["score"]
+        st.caption(f"Strategy vs simply holding (lab run {_d}, same sizing, costs and dates): champion "
+                   f"{_e['champion_score']:+.2f} vs hold {_b['score']:+.2f} fitness — "
+                   + ("it leads holding." if _gap > 0 else "it trails holding, so its signals are not yet "
+                      "earning their keep over this period.")
+                   + (" New challengers must beat the hold score to be promoted." if _e.get("baseline_gate", "promote") != "off" else ""))
+    if book.get("mode") == "hold":
+        st.warning("📌 Book mode: **HOLD**. The lab found the champion clearly behind holding everything, so "
+                   "the paper account holds the volatility-targeted hold-everything book. The champion's "
+                   "signals below are still recorded and tested live; the book returns to them once the "
+                   "lab finds them ahead.")
 
     if not macro.empty:
         m = macro.iloc[-1]
@@ -417,11 +448,18 @@ with tab_lab:
                f"**{SIZING}** — the same score and sizing the sitting champion gets, so being "
                "invested only pays when it earns, and only up to the drawdown budget.")
     method = st.radio("Search method", ["Evolution (genetic)", "Optuna (Bayesian)"], horizontal=True)
+    _opts = list(FEATURE_GROUPS) + ["macro", "sentiment"]
+    _thin = features.thin_groups(panel, float(_evo.get("min_group_coverage", 0.6)))
+    _default_ex = [g for g in dict.fromkeys(list(_evo.get("exclude_feature_groups",
+                                                        ["options_snap", "short", "dominance"])) + _thin
+                                            + ([] if SENT_READY else ["sentiment"])) if g in _opts]
     exclude_groups = st.multiselect(
-        "Exclude feature groups from search", options=list(FEATURE_GROUPS) + ["macro", "sentiment"],
-        default=["options", "short", "onchain"] + ([] if SENT_READY else ["sentiment"]),
-        help="These groups' real history only recently started accumulating — including them "
-             "can make the search pick a genome trained mostly on placeholder data. "
+        "Exclude feature groups from search", options=_opts, default=_default_ex,
+        help="Groups whose real history is still too short (the per-symbol snapshot groups: "
+             "options_snap, short, dominance) can make the search pick a genome trained mostly on "
+             "placeholder data. Groups that are mostly empty right now are pre-selected "
+             f"automatically ({', '.join(_thin) or 'none'}). The full-history groups — options "
+             "(VIX term structure, SKEW, VVIX) and onchain (fear & greed, hash rate) — are searched. "
              f"Sentiment store: {SENT_DAYS} days so far.")
     c1, c2, c3 = st.columns(3)
     eval_years = c1.slider("Evaluation window (years)", 1, 4, 2)
@@ -435,13 +473,19 @@ with tab_lab:
         timeout_min = c4.slider("Timeout (minutes, 0 = none)", 0, 120, 30)
         resume = c5.checkbox("Resume saved study (data/optuna.db)", True)
 
+    _need_years = eval_years + 1.5
+    if years < _need_years:
+        st.warning(f"The sidebar History is {years} y, but an evaluation window of {eval_years} y plus up to "
+                   f"~1.5 y of training before it needs ≥ {_need_years:g} y. With less, the longer-window "
+                   "candidates get fewer scored days and the comparison is not like for like — raise History.")
+
     if st.button("🚀 Run search", type="primary"):
         bar, status = st.progress(0.0), st.empty()
         status.write("Building the feature panel…")
         full = Genome(feature_groups=tuple(FEATURE_GROUPS), use_macro=True, use_sentiment=True)
-        cutoff = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None) - dt.timedelta(days=365 * eval_years)
-        panel_full = build_panel(bars, macro, sent, full, exo)
-        panel_full = panel_full[panel_full["date"] >= pd.Timestamp(cutoff)]
+        cutoff = pd.Timestamp(dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+                              - dt.timedelta(days=365 * eval_years)).normalize()
+        panel_full = build_panel(bars, macro, sent, full, exo)          # whole history: models train before the cutoff
         if method.startswith("Evolution"):
             best = {"txt": ""}
             def cb(g, n, best_score, best_g):          # fires once per finished generation
@@ -455,7 +499,8 @@ with tab_lab:
             rows, hist = models.evolve(panel_full, pop_size, n_gen, seed,
                                        cost_bps=fee_bps + slip_bps, progress=cb, on_eval=on_eval,
                                        exclude_groups=tuple(exclude_groups),
-                                       exec_open=tuple(stocks), sizing=SIZING)
+                                       exec_open=tuple(stocks), sizing=SIZING,
+                                       allow_short=allow_short, eval_start=cutoff)
         else:
             base = {}
             def cb2(study, trial):
@@ -472,8 +517,17 @@ with tab_lab:
                                               cost_bps=fee_bps + slip_bps, storage=storage,
                                               timeout=timeout_min * 60 or None, progress=cb2,
                                               exclude_groups=tuple(exclude_groups),
-                                              exec_open=tuple(stocks), sizing=SIZING)
-        st.session_state["lab"] = {"rows": rows, "hist": hist}
+                                              exec_open=tuple(stocks), sizing=SIZING,
+                                              allow_short=allow_short, eval_start=cutoff)
+        try:
+            hold_s, hold_m = models.hold_baseline(panel_full, fee_bps + slip_bps, tuple(stocks), SIZING,
+                                                  allow_short, max_leverage=genome.max_leverage,
+                                                  eval_start=cutoff)
+        except Exception:
+            hold_s, hold_m = None, {}
+        for r_ in rows:
+            r_["beats hold"] = bool(hold_s is not None and r_["score"] > hold_s)
+        st.session_state["lab"] = {"rows": rows, "hist": hist, "hold": (hold_s, hold_m)}
         status.success("Done — pick a champion below.")
 
     if "lab" in st.session_state and st.session_state["lab"]["rows"]:
@@ -481,6 +535,15 @@ with tab_lab:
         hist = st.session_state["lab"]["hist"]
         st.plotly_chart(px.line(hist, x="generation", y=["best", "avg"], markers=True,
                                 title="Fitness over search"), use_container_width=True)
+        _hs, _hm = st.session_state["lab"].get("hold", (None, {}))
+        if _hs is not None:
+            _n_beat = sum(1 for r_ in rows if r_.get("beats hold"))
+            st.info(f"**Hold-everything baseline** (same sizing, costs, dates and "
+                    f"{'long-only' if not allow_short else 'long/short'} rules): fitness **{_hs:+.3f}** · "
+                    f"Sharpe {_hm['sharpe']:.2f} · CAGR {_hm['cagr']:.1%} · max drawdown {_hm['max_drawdown']:.1%}. "
+                    f"{_n_beat} of {len(rows)} candidates beat it" +
+                    ("." if _n_beat else " — none of them earns more than simply holding, so a promotion "
+                     "here is a bet on the model, not a proven improvement."))
         st.dataframe(pd.DataFrame([{k: v for k, v in r.items() if k != "genome"}
                                    for r in rows]), use_container_width=True)
         idx = st.number_input("Leaderboard row to promote", 0, len(rows) - 1, 0)
@@ -552,27 +615,37 @@ with tab_bt:
         with st.spinner("Running walk-forward backtest…"):
             p = build_panel(bars, macro, sent, g_bt, exo)
             s_bt, _ = cached_wf(p, asdict(g_bt))
-            res = backtest.run_backtest(closes, s_bt, fee_bps, slip_bps,
-                                        g_bt.max_leverage, allow_short, opens=opens,
-                                        exec_open=tuple(stocks) if next_open else (),
-                                        sizing=sizing_bt)
+            nx = tuple(stocks) if next_open else ()
+            hold_sig = pd.DataFrame(1.0, index=s_bt.index, columns=closes.columns)   # hold everything, long
+            kw = dict(opens=opens, exec_open=nx)
+
+            def _both(sz):
+                """The strategy and the hold-everything book under the same sizing, costs, dates."""
+                a = backtest.run_backtest(closes, s_bt, fee_bps, slip_bps, g_bt.max_leverage, allow_short,
+                                          sizing=sz, **kw)
+                h = backtest.run_backtest(closes, hold_sig, fee_bps, slip_bps, g_bt.max_leverage, allow_short,
+                                          sizing=sz, **kw)
+                return a, h
+
+            res, hold_res = _both(sizing_bt)
             frontier = []                      # same signals, several risk levels: exposure vs drawdown
             for tv in [0, 6, 8, 10, 12, 15, 20]:
-                r_tv = backtest.run_backtest(closes, s_bt, fee_bps, slip_bps, g_bt.max_leverage,
-                                             allow_short, opens=opens,
-                                             exec_open=tuple(stocks) if next_open else (),
-                                             sizing=base_bt + (f"+vt{tv}" if tv else "")).metrics
+                a_, h_ = _both(base_bt + (f"+vt{tv}" if tv else ""))
+                r_tv, hm = a_.metrics, h_.metrics
                 frontier.append({"Target vol": "off" if tv == 0 else f"{tv}%",
                                  "Exposure": r_tv["exposure"], "Max drawdown": r_tv["max_drawdown"],
                                  "Total return": r_tv["total_return"], "CAGR": r_tv["cagr"],
                                  "Sharpe": r_tv["sharpe"], "Ann. vol": r_tv["ann_vol"],
                                  "Return / drawdown": (r_tv["total_return"] / abs(r_tv["max_drawdown"])
-                                                       if r_tv["max_drawdown"] < 0 else float("nan"))})
-        st.session_state["bt"] = {"res": res, "sig": s_bt, "name": g_bt.name,
+                                                       if r_tv["max_drawdown"] < 0 else float("nan")),
+                                 "Hold: CAGR": hm["cagr"], "Hold: Sharpe": hm["sharpe"],
+                                 "Hold: max drawdown": hm["max_drawdown"]})
+        st.session_state["bt"] = {"res": res, "hold": hold_res, "sig": s_bt, "name": g_bt.name,
                                   "frontier": pd.DataFrame(frontier)}
 
     if "bt" in st.session_state:
         res, s_bt = st.session_state["bt"]["res"], st.session_state["bt"]["sig"]
+        hold_res = st.session_state["bt"].get("hold")
         m = res.metrics
         cols = st.columns(7)
         for col, (k, fmt) in zip(cols, [("total_return", "{:.1%}"), ("cagr", "{:.1%}"),
@@ -580,25 +653,53 @@ with tab_bt:
                                         ("max_drawdown", "{:.1%}"), ("hit_rate", "{:.1%}"),
                                         ("exposure", "{:.1%}")]):
             col.metric(k.replace("_", " ").title(), fmt.format(m[k]))
+        st.caption(f"Scored from {res.equity.index[0]:%Y-%m-%d} to {res.equity.index[-1]:%Y-%m-%d}: the model's "
+                   "first out-of-sample signal onward — the training warm-up before it is not counted. "
+                   "Hit rate is the share of ALL days with a gain, so days spent in cash count against it.")
+
+        if hold_res is not None:
+            hm = hold_res.metrics
+            fit_s, fit_h = backtest.fitness(m), backtest.fitness(hm)
+            st.markdown("**Strategy vs simply holding** — same assets, sizing, costs and dates")
+            cmp_ = pd.DataFrame({"Strategy": m, "Hold everything": hm}).loc[
+                ["total_return", "cagr", "sharpe", "max_drawdown", "exposure"]]
+            cmp_.loc["fitness"] = [fit_s, fit_h]
+            cmp_.index = ["Total return", "CAGR", "Sharpe", "Max drawdown", "Avg exposure", "Fitness score"]
+            st.dataframe(cmp_.style.format("{:.2f}").format("{:.1%}", subset=pd.IndexSlice[
+                ["Total return", "CAGR", "Max drawdown", "Avg exposure"], :]), use_container_width=True)
+            if fit_s > fit_h + 0.05:
+                st.success(f"The strategy beats holding by {fit_s - fit_h:+.2f} fitness over this period.")
+            else:
+                st.warning(f"The strategy trails holding by {fit_h - fit_s:.2f} fitness: simply holding the same "
+                           "assets at the same risk setting did as well or better over this period, so the "
+                           "model's signals are not adding value yet. (Buy-and-hold is helped by a rising market; "
+                           "judge the model over a few different periods.)")
 
         fr = st.session_state["bt"].get("frontier")
         if fr is not None and len(fr):
             st.markdown("**Exposure vs drawdown** — the same signals sized to different risk levels")
-            st.dataframe(fr.style.format({"Exposure": "{:.1%}", "Max drawdown": "{:.1%}",
-                                          "Total return": "{:.1%}", "CAGR": "{:.1%}", "Sharpe": "{:.2f}",
-                                          "Ann. vol": "{:.1%}", "Return / drawdown": "{:.1f}"}),
+            _fmt = {"Exposure": "{:.1%}", "Max drawdown": "{:.1%}", "Total return": "{:.1%}", "CAGR": "{:.1%}",
+                    "Sharpe": "{:.2f}", "Ann. vol": "{:.1%}", "Return / drawdown": "{:.1f}",
+                    "Hold: CAGR": "{:.1%}", "Hold: Sharpe": "{:.2f}", "Hold: max drawdown": "{:.1%}"}
+            st.dataframe(fr.style.format({k: v for k, v in _fmt.items() if k in fr.columns}),
                          hide_index=True, use_container_width=True)
             st.caption("Drawdown grows roughly in step with exposure, so pick the deepest drawdown you "
                        "could sit through and read across. A higher Return / drawdown ratio is a better "
-                       "trade, not just a bigger bet. To use a row live, set `\"sizing\": "
-                       "\"<equal|inv_vol>+vt<N>\"` in universe.json, e.g. `equal+vt10`.")
+                       "trade, not just a bigger bet. The Hold columns are the hold-everything book at the "
+                       "same target volatility — the strategy has to beat them to justify itself. To use a "
+                       "row live, set `\"sizing\": \"<equal|inv_vol>+vt<N>\"` in universe.json, e.g. `equal+vt10`.")
 
+        t0_ = res.equity.index[0]
         bench = (1 + closes.pct_change().mean(axis=1).fillna(0)).cumprod().reindex(res.equity.index).ffill()
+        bench = bench / bench.iloc[0]
         fig = go.Figure()
         fig.add_scatter(x=res.equity.index, y=res.equity, name="Strategy", line=dict(color="#00C853"))
-        fig.add_scatter(x=bench.index, y=bench, name="Equal-weight buy & hold",
+        if hold_res is not None:
+            fig.add_scatter(x=hold_res.equity.index, y=hold_res.equity, name="Hold everything, same sizing",
+                            line=dict(color="#4C9AFF"))
+        fig.add_scatter(x=bench.index, y=bench, name="Equal-weight buy & hold (unscaled)",
                         line=dict(color="#9E9E9E", dash="dash"))
-        fig.update_layout(title="Equity curve", height=380, margin=dict(t=40))
+        fig.update_layout(title=f"Equity curve (from {t0_:%Y-%m-%d})", height=380, margin=dict(t=40))
         st.plotly_chart(fig, use_container_width=True)
 
         fig2 = px.area(res.drawdown, title="Drawdown")
@@ -767,11 +868,17 @@ with tab_auto:
             st.markdown("##### Backtest score vs live IC — the overfitting check")
             st.caption("If the backtest score (blue) looks healthy while live IC (orange) stays "
                        "flat or negative, that's the classic overfitting signature: good on paper, "
-                       "not holding up on data the model hasn't seen.")
+                       "not holding up on data the model hasn't seen. The dotted line is what simply "
+                       "holding everything scores on the same dates — the champion should sit above it. "
+                       "Runs before the 2026-10-26 update scored a different, flattering window "
+                       "(long/short, warm-up included), so their scores are not comparable.")
             ts_raw = pd.to_datetime(evo_events["ts"])
             fig_of = go.Figure()
             fig_of.add_trace(go.Scatter(x=ts_raw, y=ev["champion_score"], mode="lines+markers",
                                         name="Backtest score (champion)"))
+            if "baseline.score" in ev.columns and ev["baseline.score"].notna().any():
+                fig_of.add_trace(go.Scatter(x=ts_raw, y=ev["baseline.score"], mode="lines+markers",
+                                            name="Hold-everything baseline", line=dict(dash="dot")))
             if ev["champion_live_ic"].notna().any():
                 fig_of.add_trace(go.Scatter(x=ts_raw, y=ev["champion_live_ic"], mode="lines+markers",
                                             name="Live IC", yaxis="y2"))
@@ -826,6 +933,15 @@ with tab_auto:
         fig_fb = go.Figure()
         fig_fb.add_scatter(x=fb["equity"].index, y=fb["equity"], name="Sized book (journaled weights)",
                            line=dict(color="#00C853"))
+        try:                                           # what holding everything, sized the same, would have done
+            _t0 = fb["equity"].index[0]
+            _hold = backtest.run_backtest(
+                closes, pd.DataFrame(1.0, index=closes.loc[_t0:].index, columns=closes.columns), fee_bps, slip_bps,
+                genome.max_leverage, allow_short, opens=opens, exec_open=tuple(stocks), sizing=SIZING)
+            fig_fb.add_scatter(x=_hold.equity.index, y=_hold.equity / _hold.equity.iloc[0],
+                               name="Hold everything, same sizing", line=dict(color="#4C9AFF"))
+        except Exception:
+            pass
         fig_fb.add_scatter(x=fb["bench"].index, y=fb["bench"], name="Equal-weight buy & hold",
                            line=dict(color="#9E9E9E", dash="dash"))
         fig_fb.update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10),

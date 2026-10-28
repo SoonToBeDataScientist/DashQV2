@@ -151,15 +151,25 @@ def _score_book(w: pd.DataFrame, rets: pd.DataFrame, fee_bps: float, slippage_bp
 
 def run_backtest(prices: pd.DataFrame, signals: pd.DataFrame, fee_bps=5.0,
                  slippage_bps=5.0, max_leverage=1.0, allow_short=True,
-                 opens: pd.DataFrame | None = None, exec_open=(), sizing="equal") -> BacktestResult:
+                 opens: pd.DataFrame | None = None, exec_open=(), sizing="equal",
+                 trim=True) -> BacktestResult:
     """Decide at close t, trade on the next bar (no lookahead).
     exec_open: symbols whose orders fill at the NEXT OPEN, as the live pipeline's after-close
     orders do for stocks — they earn open-to-open returns on their own trading calendar instead
     of close-to-close, so the overnight gap the live account can't capture isn't counted.
-    Everything else (crypto) earns close-to-close."""
+    Everything else (crypto) earns close-to-close.
+    trim: the result starts at the first date `signals` has a value. A walk-forward model has no
+    signal during its training warm-up (a year of flat days for a 252-day window); counting those
+    days in the metrics dilutes Sharpe and CAGR — and penalises genomes with longer windows, which
+    have more of them. The prices before that date are still used (a volatility target needs its
+    look-back). trim=False scores the whole price history, flat warm-up included."""
     prices = prices.sort_index().ffill()
     rets, trades = _asset_returns(prices, opens, exec_open)
     w = target_weights(signals, prices, max_leverage, sizing, allow_short, trades)
+    if trim:
+        seen = signals.dropna(how="all")
+        if not seen.empty:
+            w, rets = w.loc[seen.index[0]:], rets.loc[seen.index[0]:]
     return _score_book(w, rets, fee_bps, slippage_bps)
 
 
