@@ -1,20 +1,19 @@
 {
-  "name": "G4-4",
-  "model_type": "hgb",
+  "name": "G4-0",
+  "model_type": "rf",
   "feature_groups": [
-    "momentum",
     "volume",
-    "trend"
+    "econ"
   ],
   "use_macro": true,
-  "use_sentiment": false,
-  "horizon": 10,
+  "use_sentiment": true,
+  "horizon": 3,
   "train_window": 252,
-  "retrain_every": 10,
+  "retrain_every": 21,
   "smooth": 1,
-  "entry": 0.06293277206657621,
+  "entry": 0.098,
   "max_leverage": 1.5,
-  "n_estimators": 500,
+  "n_estimators": 150,
   "learning_rate": 0.02,
-  "max_depth": 4
+  "max_depth": 5
 }
