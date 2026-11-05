@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from . import backtest as bt
-from . import datafeed, exodata, forwardtest, journal, models, session
+from . import datafeed, evidence, exodata, forwardtest, journal, models, session
 from .config import load_settings
 from .features import FEATURE_GROUPS, build_panel, feature_columns, thin_groups
 from .models import Genome
@@ -134,6 +134,71 @@ def ran_for_session(jpath: str, cfg, day) -> bool:
     return bool((same & (df["ts"] >= session.close_utc(cfg, day)).values).any())
 
 
+def _lab_payloads(jpath: str) -> list:
+    """The journal's past evolution events as dicts. Every lab run was another chance for some
+    genome to look good on this data by luck; evidence.lab_trials counts them for the deflated
+    Sharpe."""
+    out = []
+    try:
+        for p in journal.read(jpath, "evolution", 5000)["payload"]:
+            try:
+                out.append(json.loads(p))
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return out
+
+
+def _write_evidence(s, key: str, brief: dict):
+    """data/evidence.json = the newest verdicts ('live' = journaled signals vs what followed,
+    'lab' = the champion's walk-forward backtest vs holding). Read-modify-write so the two
+    writers (daily run, lab) don't erase each other."""
+    path = os.path.join(s.data_dir, "evidence.json")
+    try:
+        cur = json.load(open(path)) if os.path.exists(path) else {}
+    except Exception:
+        cur = {}
+    cur[key] = brief
+    os.makedirs(s.data_dir, exist_ok=True)
+    json.dump(cur, open(path, "w"), indent=2, default=str)
+
+
+def log_closes(jpath: str, bars: dict, keep_days: int = 300):
+    """Journal the daily closes the day's decisions were made on (only dates not logged before; the
+    first run logs the last `keep_days`). Signals are already in the journal; with the prices next to
+    them the live record can be re-scored from the repo alone, without market-data keys."""
+    try:
+        px = pd.DataFrame({k: v["close"] for k, v in bars.items()}).sort_index()
+        px.index = pd.DatetimeIndex(px.index).tz_localize(None) if px.index.tz is not None else px.index
+        done = evidence.closes_from_journal(journal.read(jpath, "closes", 5000))
+        last = done.index.max() if len(done) else None
+        new = px.iloc[-keep_days:] if last is None else px[px.index > last]
+        if new.empty:
+            return 0
+        payload = {f"{d:%Y-%m-%d}": {k: (round(float(v), 6) if v == v else None) for k, v in row.items()}
+                   for d, row in new.iterrows()}
+        journal.log(jpath, "closes", {"closes": payload})
+        return len(payload)
+    except Exception:
+        return 0
+
+
+def record_live_evidence(s, cfg, jpath: str, closes: pd.DataFrame, horizon: int, allow_short=False):
+    """Score the whole live signal record with the overlap-robust edge test and file the verdict.
+    Never raises: a failure here must not touch the trading run."""
+    try:
+        rep = evidence.live_evidence(journal.read(jpath, limit=10000), closes, horizon,
+                                     session_cfg=cfg, long_only=not allow_short)
+        brief = evidence.brief_live(rep)
+        brief["asof"] = f"{pd.Timestamp.now('UTC'):%Y-%m-%d}"
+        journal.log(jpath, "evidence", brief)
+        _write_evidence(s, "live", brief)
+        return brief
+    except Exception:
+        return None
+
+
 def compute_live_ic(jpath: str, bars: dict, horizon: int, cfg=None):
     """Spearman IC between journaled signals and realized forward returns. Cheap —
     no retraining, just correlation on data that's already local (journal + closes)."""
@@ -254,26 +319,31 @@ def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=Non
     if evo.get("method", "evolution") == "optuna":
         from . import optimize
         storage = f"sqlite:///{os.path.join(s.data_dir, 'optuna.db')}"   # warm-starts weekly
-        rows, _, _ = optimize.optimize(panel, n_trials=evo.get("trials", 25), seed=seed,
+        rows, _, _study = optimize.optimize(panel, n_trials=evo.get("trials", 25), seed=seed,
                                        cost_bps=cost, storage=storage, exclude_groups=exclude_groups,
                                        exec_open=exec_open, sizing=sizing,
                                        allow_short=allow_short, eval_start=cutoff)
+        _sr = [t.user_attrs["sharpe"] for t in _study.trials if t.user_attrs.get("sharpe") is not None]
+        n_tried, sr_sd = len(_study.trials), (float(np.std(_sr, ddof=1)) if len(_sr) > 2 else None)
     else:
-        rows, _ = models.evolve(panel, pop_size=evo.get("pop_size", 6),
+        rows, _hist = models.evolve(panel, pop_size=evo.get("pop_size", 6),
                                 generations=evo.get("generations", 2), cost_bps=cost, seed=seed,
                                 exclude_groups=exclude_groups, exec_open=exec_open, sizing=sizing,
                                 allow_short=allow_short, eval_start=cutoff,
                                 time_budget=60 * float(evo.get("lab_time_budget_min", 45)))
+        n_tried, sr_sd = _hist.attrs.get("n_evaluated"), _hist.attrs.get("trial_sharpe_sd")
+    # the champion AND the hold book it has to beat, over the same dates; the walk-forward signals
+    # and daily returns are kept for the edge tests below (same arithmetic as score_genome /
+    # hold_baseline, which the lab uses for the challengers)
+    rec = None
     try:
-        champ_score, champ_m = models.score_genome(panel, genome, cost, exec_open, sizing,
-                                                   allow_short=allow_short, eval_start=cutoff)
+        rec = models.genome_record(panel, genome, cost, exec_open, sizing,
+                                   allow_short=allow_short, eval_start=cutoff)
+        champ_score, champ_m = rec["score"], rec["result"].metrics
+        hold_score = rec["hold_score"]
+        hold_m = rec["hold"].metrics if rec["hold"] is not None else {}
     except Exception:
-        champ_score, champ_m = -999.0, {}
-    try:
-        hold_score, hold_m = models.hold_baseline(panel, cost, exec_open, sizing, allow_short,
-                                                  max_leverage=genome.max_leverage, eval_start=cutoff)
-    except Exception:
-        hold_score, hold_m = None, {}
+        champ_score, champ_m, hold_score, hold_m = -999.0, {}, None, {}
     challenger = rows[0]
     min_score = evo.get("promote_min_score", 0.0)
     min_exposure = evo.get("promote_min_exposure", 0.10)
@@ -291,7 +361,24 @@ def _search_and_maybe_promote(s, cfg, panel, genome, jpath, trigger, live_ic=Non
              "baseline_gate": gate,
              "challenger": challenger["name"], "challenger_score": challenger["score"],
              "challenger_exposure": challenger.get("exposure"),
-             "excluded": list(exclude_groups), "sizing": sizing}
+             "excluded": list(exclude_groups), "sizing": sizing,
+             "n_evaluated": n_tried, "trial_sharpe_sd": (round(sr_sd, 3) if sr_sd else None)}
+    if rec is not None and rec.get("hold") is not None:
+        # Is the champion's backtest edge distinguishable from luck? Tested after market beta, and
+        # discounted for the number of genomes the lab has tried (best-of-N selection). The lab
+        # window is NOT out-of-sample for the genome that was picked on it — the live record is.
+        try:
+            _prior = _lab_payloads(jpath)
+            _n_trials, _sd = evidence.lab_trials(
+                _prior + [{"n_evaluated": n_tried, "trial_sharpe_sd": sr_sd}], n_tried or 0)
+            be = evidence.backtest_evidence(
+                rec["signals"], rec["prices"], rec["result"].returns, rec["hold"].returns,
+                genome.horizon, n_trials=_n_trials, trial_sr_sd=_sd,
+                long_only=not allow_short, n_boot=1000, max_shifts=1000)
+            event["evidence"] = evidence.brief_backtest(be)
+            _write_evidence(s, "lab", {"asof": f"{pd.Timestamp.now('UTC'):%Y-%m-%d}", **event["evidence"]})
+        except Exception as exc:
+            event["evidence"] = {"error": str(exc)[:200]}
 
     # Sentiment A/B: the champion as it is vs the same champion with news sentiment flipped. The
     # search above can only stumble on sentiment inside some other genome; this tests it on its
@@ -552,6 +639,10 @@ def run(config_path="universe.json", force_evolve=False, no_trade=False,
             results = datafeed.rebalance(tc, targets, asset_map)
             journal.log(jpath, "orders", results)
             out["orders"] = results
+
+    log_closes(jpath, bars)
+    out["evidence"] = record_live_evidence(s, cfg, jpath, closes, genome.horizon,
+                                           cfg.get("allow_short", False))
 
     # 4. autonomous Strategy Lab: scheduled (session weekday / catch-up) + live-IC-triggered
     if promote is None:

@@ -12,6 +12,10 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src import backtest, datafeed, exodata, features, forwardtest, ghactions, journal, models, optimize
+try:
+    from src import evidence
+except ImportError:                                  # the new file hasn't been pushed yet
+    evidence = None
 
 # A running Streamlit process keeps modules it already imported. After a deploy that changes
 # several files at once, app.py can be new while a src/ module in memory is still the old one
@@ -25,7 +29,7 @@ _REQUIRED = [(backtest, ("evaluate_weights", "window_metrics", "expected_vol", "
              (forwardtest, ("book_events", "book_report", "shadow_report")),
              (features, ("thin_groups",)),
              (models, ("ablate_sentiment", "sentiment_twin", "configure_purge", "configure_target",
-                       "hold_baseline")),
+                       "hold_baseline", "genome_record")),
              (datafeed, ("sentiment_features",))]
 
 
@@ -33,7 +37,10 @@ def _missing():
     return [f"{m.__name__}.{n}" for m, names in _REQUIRED for n in names if not hasattr(m, n)]
 
 
-_ORDER = (backtest, features, datafeed, exodata, models, optimize, forwardtest, journal, ghactions)
+if evidence is not None:
+    _REQUIRED.append((evidence, ("live_evidence", "backtest_evidence", "excess_report", "lab_trials")))
+_ORDER = (backtest, features, datafeed, exodata, models, optimize, forwardtest, journal, ghactions) + (
+    (evidence,) if evidence is not None else ())
 _stale_mods = [m for m, names in _REQUIRED if any(not hasattr(m, n) for n in names)]
 if _stale_mods:
     # reload the first stale module and everything after it in dependency order (models binds
@@ -44,6 +51,8 @@ if _stale_mods:
         except Exception:
             pass
 STALE = _missing()                    # still missing after a reload = the file itself is old
+if evidence is None:
+    STALE.append("src/evidence.py (new file)")
 from src.config import load_settings
 from src.features import FEATURE_GROUPS, build_live_row, build_panel
 from src.models import Genome
@@ -227,6 +236,87 @@ def last_sentiment_ab():
     except Exception:
         pass
     return None
+
+
+_LEVEL_ICON = {"strong": "✅✅", "evidence": "✅", "hint": "🟡", "none": "❌", "too_early": "⏳"}
+
+
+def lab_trial_info():
+    """(genomes the lab has tried in total, typical spread of their Sharpes, date of the first lab
+    run) from the journal — what the deflated Sharpe needs to discount a best-of-N winner."""
+    try:
+        ev = journal.read(JOURNAL_PATH, kind="evolution", limit=5000)
+        payloads = [json.loads(p) for p in ev["payload"]]
+        evo = US_CFG.get("evolution", {})
+        n, sd = evidence.lab_trials(payloads, evo.get("pop_size", 6) * (evo.get("generations", 2) + 1))
+        first = pd.Timestamp(ev["ts"].min()).tz_localize(None) if len(ev) else None
+        return n, sd, first
+    except Exception:
+        return 1, None, None
+
+
+def show_edge_evidence(evr: dict):
+    """The overlap-robust verdict on the live signal record (src/evidence.py)."""
+    if not evr or "edge" not in evr:
+        n_ = (evr or {}).get("n_dates", 0)
+        st.info(f"⏳ {n_} matured sessions so far. A verdict needs roughly 30 independent ones "
+                "(forward returns overlap, so 30 independent sessions take more than 30 days) — "
+                "the daily pipeline keeps adding them.")
+        return
+    e, c = evr["edge"], evr["ic_cs"]
+    st.markdown(f"##### {_LEVEL_ICON[evr['level']]} {evr['label']}")
+    k = st.columns(4)
+    k[0].metric("Sessions (independent)", f"{evr['n_dates']} ({evr['n_eff']:.0f})",
+                help="Forward returns overlap, so consecutive sessions are not independent. The number in "
+                     "brackets is how many independent observations the record is really worth.")
+    k[1].metric("Chance random timing matches it", f"{e['p_perm']:.0%}",
+                help="The model's signals are shifted in time against the returns many ways, keeping the "
+                     "same exposure and market drift. This is how often a shifted copy earns as much as "
+                     "the real one — below 5% is the usual bar.")
+    k[2].metric("Edge per session", f"{e['mean']:+.3%}",
+                help=f"95% range {e['ci'][0]:+.3%} to {e['ci'][1]:+.3%}. Average of signal × forward return "
+                     "over the traded (long-only) book.")
+    k[3].metric("Asset-picking IC (per date)", f"{c['mean']:+.3f}" if c["mean"] == c["mean"] else "—",
+                help="Spearman correlation between the signals and what followed, across assets on each "
+                     "date, averaged over dates (t = " + (f"{c['t']:+.1f}" if c["t"] == c["t"] else "n/a") + ").")
+    st.caption(evidence.plain_summary(evr))
+    need, det = evr.get("need"), evr.get("detectable")
+    bits = []
+    if need:
+        bits.append(f"If the edge seen so far is real and stays this size, about {need} more sessions would make "
+                    "it clearly significant (optimistic: measured edges tend to shrink).")
+    if det is not None:
+        bits.append(f"With this much data the test could only have detected an edge of about {det:+.3%} per "
+                    "session or more — smaller real edges stay invisible until the record is longer.")
+    if bits:
+        st.caption(" ".join(bits))
+    if evr["ic_pooled"] == evr["ic_pooled"]:
+        st.caption(f"For comparison, the pooled IC across all assets and dates is {evr['ic_pooled']:+.3f}. It "
+                   "counts every overlapping observation as independent and mixes timing with which-asset "
+                   "luck, so it reads more impressive than the evidence is.")
+
+
+def bt_evidence_rows(be: dict) -> dict:
+    """Backtest evidence as label -> text, for the side-by-side table."""
+    v = be.get("vs_hold") or {}
+    if "alpha_ann" not in v:
+        return {"Verdict": f"{_LEVEL_ICON['too_early']} {be.get('label', 'Too early to say')}",
+                "Sessions": str(v.get("n", 0))}
+    d, e = be.get("deflated") or {}, (be.get("edge") or {}).get("edge") or {}
+    rows = {"Verdict": f"{_LEVEL_ICON[be['level']]} {be['label']}",
+            "Sessions (independent)": f"{v['n']} ({v['n_eff']:.0f})",
+            "Extra return vs holding, per year": f"{v['excess_ann']:+.1%}",
+            "Alpha after beta, per year": f"{v['alpha_ann']:+.1%} (95% range {v['alpha_ci_ann'][0]:+.1%} "
+                                          f"to {v['alpha_ci_ann'][1]:+.1%})",
+            "Chance of that alpha by luck": f"{v['alpha_p']:.1%}",
+            "Exposure to the market (beta)": f"{v['beta']:.2f}",
+            "Sharpe: strategy − hold": f"{v['sharpe_diff']:+.2f} (95% range {v['sharpe_diff_ci'][0]:+.2f} "
+                                       f"to {v['sharpe_diff_ci'][1]:+.2f})"}
+    if e.get("p_perm") is not None and e["p_perm"] == e["p_perm"]:
+        rows["Chance random timing matches it"] = f"{e['p_perm']:.0%}"
+    if d.get("dsr") is not None and d["dsr"] == d["dsr"]:
+        rows[f"Still positive after trying {d['n_trials']} genomes?"] = f"{d['dsr']:.0%} sure"
+    return rows
 
 
 def last_baseline():
@@ -640,8 +730,25 @@ with tab_bt:
                                                        if r_tv["max_drawdown"] < 0 else float("nan")),
                                  "Hold: CAGR": hm["cagr"], "Hold: Sharpe": hm["sharpe"],
                                  "Hold: max drawdown": hm["max_drawdown"]})
+            ev_bt = {}
+            try:
+                _n_tr, _sd_tr, _first_lab = lab_trial_info()
+                _kw = dict(long_only=not allow_short, n_boot=1000, max_shifts=1000)
+                ev_bt["all"] = evidence.backtest_evidence(s_bt, closes, res.returns, hold_res.returns,
+                                                          g_bt.horizon, n_trials=_n_tr, trial_sr_sd=_sd_tr, **_kw)
+                ev_bt["n_trials"] = _n_tr
+                if _first_lab is not None:
+                    # Dates before the first lab run's judging window were never used to pick any
+                    # genome, so the discount isn't needed there.
+                    _clean_end = _first_lab - pd.Timedelta(days=365 * US_CFG.get("evolution", {}).get("eval_years", 2))
+                    ev_bt["clean_end"] = _clean_end
+                    ev_bt["clean"] = evidence.backtest_evidence(
+                        s_bt.loc[:_clean_end], closes, res.returns.loc[:_clean_end], hold_res.returns.loc[:_clean_end],
+                        g_bt.horizon, n_trials=None, **_kw)
+            except Exception as _exc:
+                ev_bt["error"] = str(_exc)[:200]
         st.session_state["bt"] = {"res": res, "hold": hold_res, "sig": s_bt, "name": g_bt.name,
-                                  "frontier": pd.DataFrame(frontier)}
+                                  "frontier": pd.DataFrame(frontier), "evidence": ev_bt}
 
     if "bt" in st.session_state:
         res, s_bt = st.session_state["bt"]["res"], st.session_state["bt"]["sig"]
@@ -674,6 +781,27 @@ with tab_bt:
                            "assets at the same risk setting did as well or better over this period, so the "
                            "model's signals are not adding value yet. (Buy-and-hold is helped by a rising market; "
                            "judge the model over a few different periods.)")
+
+        _ebt = st.session_state["bt"].get("evidence") or {}
+        if _ebt.get("all"):
+            st.markdown("**Is that edge real?** — a significance test, not a score")
+            _tbl = {"Whole period (discounted: the lab picked this genome by its results here)":
+                    bt_evidence_rows(_ebt["all"])}
+            if _ebt.get("clean"):
+                _tbl[f"Before {_ebt['clean_end']:%Y-%m-%d} (earlier than any lab judging window — "
+                     "never used to pick it)"] = bt_evidence_rows(_ebt["clean"])
+            _df = pd.DataFrame(_tbl)
+            st.dataframe(_df.fillna("—"), use_container_width=True)
+            _lvl = _ebt["all"]["level"]
+            if _ebt["all"].get("downgraded"):
+                st.caption("⚠️ " + _ebt["all"]["downgraded"] + ".")
+            st.caption("Alpha = what the strategy earned beyond what its market exposure (beta to holding "
+                       "everything) explains. Overlapping returns and the number of genomes the lab has tried "
+                       "are both accounted for. A long-only book looks good in any rising market; only a "
+                       "positive alpha that is unlikely by luck counts. Backtests that pick the best of many "
+                       "genomes overstate their edge — the live record in the Automation tab is the real test.")
+        elif _ebt.get("error"):
+            st.caption(f"Edge test unavailable: {_ebt['error']}")
 
         fr = st.session_state["bt"].get("frontier")
         if fr is not None and len(fr):
@@ -893,14 +1021,32 @@ with tab_auto:
 
     st.divider()
     st.markdown("#### Continuous forward test — do journaled signals predict future returns?")
-    events = forwardtest.signal_events(journal.read(JOURNAL_PATH, limit=10000))
+    _jall = journal.read(JOURNAL_PATH, limit=10000)
+    events = forwardtest.signal_events(_jall)
     rep = forwardtest.report(events, closes, horizon=genome.horizon, session_cfg=US_CFG)
     if rep.get("n", 0) >= 10:
+        evr = evidence.live_evidence(_jall, closes, genome.horizon, session_cfg=US_CFG,
+                                     long_only=not US_CFG.get("allow_short", False))
         c1, c2, c3 = st.columns(3)
         c1.metric("Matured observations", rep["n"])
-        c2.metric("Information coefficient (Spearman)", f"{rep['ic']:.3f}")
-        verdict = "✅ positive edge" if rep["ic"] > 0.02 else ("❌ negative" if rep["ic"] < -0.02 else "⏳ inconclusive")
-        c3.metric("Verdict", verdict)
+        c2.metric("Pooled IC (Spearman)", f"{rep['ic']:.3f}",
+                  help="Every asset and date pooled, overlapping returns counted as if independent: "
+                       "treat as descriptive, not as proof. The test below is the verdict.")
+        c3.metric("Verdict", f"{_LEVEL_ICON[evr['level']]} {evr['label']}")
+        show_edge_evidence(evr)
+        try:                                           # how the verdict has moved day by day
+            _eh = journal.read(JOURNAL_PATH, kind="evidence", limit=400)
+            _eh = pd.DataFrame([{"date": pd.Timestamp(t).tz_localize(None), **json.loads(q)}
+                                for t, q in zip(_eh["ts"], _eh["payload"])])
+            if len(_eh) >= 3 and "p_perm" in _eh:
+                _eh = _eh.sort_values("date").dropna(subset=["p_perm"]).drop_duplicates("date", keep="last")
+                _fe = px.line(_eh, x="date", y="p_perm", title="Chance random timing matches the model, by day "
+                              "(below the dotted line = significant)")
+                _fe.add_hline(y=0.05, line_dash="dot")
+                _fe.update_layout(height=220, margin=dict(l=10, r=10, t=40, b=10), yaxis=dict(range=[0, 1]))
+                st.plotly_chart(_fe, use_container_width=True)
+        except Exception:
+            pass
         st.dataframe(rep["by_bucket"], use_container_width=True)
         if not rep["rolling"].empty:
             st.plotly_chart(px.line(rep["rolling"], x="date", y="ic_roll",
@@ -947,6 +1093,16 @@ with tab_auto:
         fig_fb.update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10),
                              legend=dict(orientation="h", y=1.1))
         st.plotly_chart(fig_fb, use_container_width=True)
+        try:
+            _fx = evidence.excess_report(fb["equity"].pct_change().dropna(), _hold.returns, block=5, n_boot=1000)
+            if "alpha_ann" in _fx:
+                st.caption(f"{_LEVEL_ICON[_fx['level']]} **{_fx['label']}** — vs holding the same assets, same sizing "
+                           f"({_fx['n']} sessions): {_fx['excess_ann']:+.1%}/yr extra return, alpha after beta "
+                           f"{_fx['alpha_ann']:+.1%}/yr (chance by luck {_fx['alpha_p']:.0%}).")
+            else:
+                st.caption(f"{_LEVEL_ICON['too_early']} vs holding: {_fx['n']} sessions — too few for a verdict (needs ≥ 20 sessions and ~30 independent).")
+        except Exception:
+            pass
         st.plotly_chart(px.area(fb["gross"], title="Gross exposure (share of equity)")
                         .update_layout(height=200, showlegend=False, margin=dict(t=40)),
                         use_container_width=True)

@@ -335,6 +335,18 @@ def score_genome(panel: pd.DataFrame, g: Genome, cost_bps: float, exec_open=(), 
     return fitness(m), m
 
 
+def _hold_result(panel, cost_bps, exec_open=(), sizing="equal", allow_short=False,
+                 max_leverage=1.0, frames=None, eval_start=None):
+    """The hold-everything book as a full BacktestResult (see hold_baseline)."""
+    prices, opens = frames or market_frames(panel)
+    sig = pd.DataFrame(1.0, index=prices.index, columns=prices.columns)
+    if eval_start is not None:
+        sig = sig.loc[pd.Timestamp(eval_start):]
+    return run_backtest(prices, sig, fee_bps=cost_bps / 2, slippage_bps=cost_bps / 2,
+                        max_leverage=max_leverage, allow_short=allow_short, opens=opens,
+                        exec_open=exec_open, sizing=sizing)
+
+
 def hold_baseline(panel: pd.DataFrame, cost_bps: float, exec_open=(), sizing="equal",
                   allow_short=False, max_leverage=1.0, frames=None, eval_start=None):
     """The yardstick every strategy has to beat: hold EVERY asset long all the time, sized, costed
@@ -344,14 +356,32 @@ def hold_baseline(panel: pd.DataFrame, cost_bps: float, exec_open=(), sizing="eq
     On 20 real stocks (1997-2022) the walk-forward models did not beat this, so a model that can't
     is just adding cost and risk of being wrong; the lab and the backtest report it next to
     every strategy."""
-    prices, opens = frames or market_frames(panel)
-    sig = pd.DataFrame(1.0, index=prices.index, columns=prices.columns)
-    if eval_start is not None:
-        sig = sig.loc[pd.Timestamp(eval_start):]
-    m = run_backtest(prices, sig, fee_bps=cost_bps / 2, slippage_bps=cost_bps / 2,
-                     max_leverage=max_leverage, allow_short=allow_short, opens=opens,
-                     exec_open=exec_open, sizing=sizing).metrics
+    m = _hold_result(panel, cost_bps, exec_open, sizing, allow_short, max_leverage, frames,
+                     eval_start).metrics
     return fitness(m), m
+
+
+def genome_record(panel: pd.DataFrame, g: Genome, cost_bps: float, exec_open=(), sizing="equal",
+                  frames=None, allow_short=False, eval_start=None) -> dict:
+    """score_genome with everything kept: the walk-forward signals and the full backtest results
+    of the genome AND of holding everything under the genome's own leverage cap (what the edge
+    tests in evidence.py need: the signal/return pairs and the two daily return series).
+    Same arithmetic as score_genome / hold_baseline, so the numbers agree with the lab's."""
+    frames = frames or market_frames(panel)
+    prices, opens = frames
+    sig, _ = walk_forward_signals(panel, g, start=eval_start)
+    if sig.empty:
+        raise ValueError("no signals")
+    res = run_backtest(prices, sig, fee_bps=cost_bps / 2, slippage_bps=cost_bps / 2,
+                       max_leverage=g.max_leverage, allow_short=allow_short, opens=opens,
+                       exec_open=exec_open, sizing=sizing)
+    try:                                   # the yardstick failing must never cost the genome its own score
+        hold = _hold_result(panel, cost_bps, exec_open, sizing, allow_short, g.max_leverage, frames,
+                            eval_start)
+    except Exception:
+        hold = None
+    return {"signals": sig, "result": res, "hold": hold, "prices": prices,
+            "score": fitness(res.metrics), "hold_score": (fitness(hold.metrics) if hold is not None else None)}
 
 
 def sentiment_twin(g: Genome) -> Genome:
@@ -536,7 +566,14 @@ def evolve(panel: pd.DataFrame, pop_size=10, generations=4, seed=42,
                      "smooth": g.smooth, "train": g.train_window, "retrain": g.retrain_every,
                      "lev": g.max_leverage, "groups": "+".join(g.feature_groups),
                      "macro": g.use_macro, "sent": g.use_sentiment})
-    return rows, pd.DataFrame(history)
+    hist = pd.DataFrame(history)
+    tried = [m for (sc, m) in cache.values() if m and sc > -900]
+    sh = [float(m["sharpe"]) for m in tried if m.get("sharpe") is not None and np.isfinite(m["sharpe"])]
+    # how many genomes this search tried and how far apart their Sharpes were: evidence.deflated_sharpe
+    # needs both to discount the winner for being the best of many
+    hist.attrs.update(n_evaluated=int(len(cache)),
+                      trial_sharpe_sd=(float(np.std(sh, ddof=1)) if len(sh) > 2 else None))
+    return rows, hist
 
 
 # ---------------------------------------------------------------- persistence
