@@ -1,6 +1,6 @@
 {
-  "ts": "2026-11-06T01:45:53.789945+00:00",
-  "session": "2026-11-05",
+  "ts": "2026-11-07T01:07:19.056847+00:00",
+  "session": "2026-11-06",
   "symbols": [
     "AAPL",
     "MSFT",
@@ -11,12 +11,12 @@
   ],
   "genome": "G4-0",
   "signals": {
-    "AAPL": 0.1472,
-    "BTC/USD": 0.0,
-    "ETH/USD": -0.0,
-    "MSFT": 0.0876,
-    "NVDA": 0.1426,
-    "SPY": 0.1383
+    "AAPL": 0.0358,
+    "BTC/USD": 0.0544,
+    "ETH/USD": 0.0,
+    "MSFT": 0.0525,
+    "NVDA": 0.2246,
+    "SPY": 0.0526
   },
   "tradable": [
     "AAPL",
@@ -31,17 +31,17 @@
     "target_vol": 0.12,
     "max_leverage": 1.5,
     "weights": {
-      "AAPL": 0.11042,
-      "BTC/USD": 0.0,
-      "ETH/USD": -0.0,
-      "MSFT": 0.06569,
-      "NVDA": 0.10692,
-      "SPY": 0.10374
+      "AAPL": 0.02682,
+      "BTC/USD": 0.04084,
+      "ETH/USD": 0.0,
+      "MSFT": 0.03935,
+      "NVDA": 0.16844,
+      "SPY": 0.03942
     },
-    "gross": 0.3868,
-    "base_gross": 0.1289,
+    "gross": 0.3149,
+    "base_gross": 0.105,
     "scale": 3.0,
-    "expected_vol": 0.0612,
+    "expected_vol": 0.0688,
     "mode": "ml"
   },
   "data_health": {
@@ -55,12 +55,12 @@
       "ETH/USD": "alpaca"
     }
   },
-  "sentiment_days": 1492,
+  "sentiment_days": 1493,
   "regime": {
-    "vix": 16.61,
-    "vix_z": 0.21,
-    "spy_ret21": -0.0134,
-    "usdidr": 17509.2,
-    "usdidr_chg5": -0.0308
+    "vix": 28.18,
+    "vix_z": 4.28,
+    "spy_ret21": -0.0529,
+    "usdidr": 17479.2,
+    "usdidr_chg5": -0.0327
   }
 }
