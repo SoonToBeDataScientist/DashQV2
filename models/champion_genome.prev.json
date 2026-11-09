@@ -1,19 +1,21 @@
 {
   "name": "G4-0",
-  "model_type": "rf",
+  "model_type": "lgbm",
   "feature_groups": [
-    "volume",
+    "trend",
+    "volatility",
+    "options",
     "econ"
   ],
-  "use_macro": true,
+  "use_macro": false,
   "use_sentiment": true,
-  "horizon": 3,
-  "train_window": 252,
+  "horizon": 5,
+  "train_window": 378,
   "retrain_every": 21,
-  "smooth": 1,
-  "entry": 0.098,
+  "smooth": 5,
+  "entry": 0.09440187697083419,
   "max_leverage": 1.5,
-  "n_estimators": 150,
-  "learning_rate": 0.02,
-  "max_depth": 5
+  "n_estimators": 300,
+  "learning_rate": 0.1,
+  "max_depth": 3
 }
