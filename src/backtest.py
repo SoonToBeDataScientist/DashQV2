@@ -68,8 +68,24 @@ def parse_sizing(sizing: str):
     return (base or "equal"), (tv if tv and tv > 0 else None)
 
 
+# How far a book may be scaled UP to reach its volatility target. 3 was set for a 6-asset book; a
+# wider, more diversified universe has less volatility per unit of exposure, so it needs more room
+# to reach the same risk. universe.json -> vt_max_scale sets it (pipeline.configure / app startup).
+VT_MAX_SCALE = 3.0
+
+
+def configure_vol_target(max_scale=3.0) -> float:
+    global VT_MAX_SCALE
+    try:
+        v = float(max_scale)
+        VT_MAX_SCALE = v if v >= 1.0 else 3.0
+    except (TypeError, ValueError):
+        VT_MAX_SCALE = 3.0
+    return VT_MAX_SCALE
+
+
 def _vol_target(w: pd.DataFrame, prices: pd.DataFrame, target: float, max_leverage: float,
-                window=60, max_scale=3.0, ann=252) -> pd.DataFrame:
+                window=60, max_scale=None, ann=252) -> pd.DataFrame:
     """Scale each date's weights so the portfolio they form has ~`target` annualized volatility,
     using only returns up to that date (the weights are shifted for execution by the caller).
     The risk measured is the *position's* (w' Σ w, Σ = trailing `window`-day covariance of asset
@@ -77,6 +93,7 @@ def _vol_target(w: pd.DataFrame, prices: pd.DataFrame, target: float, max_levera
     sized correctly when it wakes up. The scale is capped at `max_scale` (a nearly flat book
     isn't blown up without limit) and gross exposure never exceeds `max_leverage`. Same
     convention as the backtest's "ann vol" (252 on the calendar-day series)."""
+    max_scale = VT_MAX_SCALE if max_scale is None else max_scale
     cols = [c for c in w.columns if c in prices.columns]
     if not cols or w.empty:
         return w

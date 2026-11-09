@@ -28,6 +28,17 @@ def configure(cfg) -> None:
     bt.configure_fitness(cfg.get("fitness"))
     models.configure_purge(evo.get("purge_labels", True))
     models.configure_target(evo.get("target_scale", "raw"))
+    bt.configure_vol_target(cfg.get("vt_max_scale", 3.0))
+
+
+def _sentiment_symbols(cfg, symbols) -> list:
+    """Symbols whose news sentiment is collected and used. A symbol added to the universe has NO
+    sentiment history: training would see zeros for it while the live run starts seeing real
+    scores — a train/serve skew. So the config can pin the list (sentiment_symbols); the symbols it
+    leaves out get the same zeros in training and live until a backfill covers them (then remove
+    the key). Default: every symbol."""
+    pinned = cfg.get("sentiment_symbols")
+    return [x for x in symbols if x in pinned] if pinned else list(symbols)
 
 
 def book_mode(s, cfg) -> str:
@@ -471,6 +482,7 @@ def _sentiment(cfg, s, symbols, update: bool):
     live — a train/serve skew the lab can't see — so it's switched off everywhere."""
     evo = cfg.get("evolution", {})
     path = os.path.join(s.data_dir, "sentiment.csv")
+    symbols = _sentiment_symbols(cfg, symbols)
     store = (datafeed.update_sentiment_store(symbols, s, path, cfg.get("sentiment_backend", "auto"))
              if update else datafeed.load_sentiment_store(path))
     days = datafeed.sentiment_coverage_days(store)
@@ -677,7 +689,7 @@ def main():
     if a.backfill_sentiment:
         s, cfg = load_settings(), json.load(open(a.config))
         store = datafeed.backfill_sentiment_store(
-            _universe(cfg)[2], s, os.path.join(s.data_dir, "sentiment.csv"),
+            _sentiment_symbols(cfg, _universe(cfg)[2]), s, os.path.join(s.data_dir, "sentiment.csv"),
             cfg.get("sentiment_backend", "auto"), days=a.backfill_sentiment)
         print(json.dumps({"status": "ok", "sentiment_days": datafeed.sentiment_coverage_days(store)}))
     elif a.check_intraday:

@@ -105,6 +105,14 @@ def mutate(g: Genome, rng, exclude_groups=()) -> Genome:
 
 
 # ---------------------------------------------------------------- model
+# Random-forest cost grows with rows x trees, and rows grow with the number of assets (rows = days x
+# assets). Past RF_MAX_ROWS each tree is fit on a bootstrap sample of that many rows instead of the
+# full set, so a 30-asset universe costs about what the original 6 did (measured: 411 s -> ~90 s for
+# a 504-day window retrained every 10 days). Nothing changes up to ~8 assets: their windows are
+# under the cap, so max_samples stays at its default and the fit is identical.
+RF_MAX_ROWS = 4000
+
+
 class SignalModel:
     """Regressor on forward returns -> continuous signal in [-1, +1] via tanh scaling."""
 
@@ -132,6 +140,8 @@ class SignalModel:
         self.med_ = X.median(numeric_only=True)
         X = X.fillna(self.med_).fillna(0.0).clip(-8, 8)
         y = y.clip(y.quantile(0.02), y.quantile(0.98))
+        if self.genome.model_type == "rf" and len(X) > RF_MAX_ROWS:
+            self.model.set_params(max_samples=RF_MAX_ROWS / len(X))
         self.model.fit(X, y)
         self.scale_ = float(np.std(self.model.predict(X))) + 1e-9
         return self

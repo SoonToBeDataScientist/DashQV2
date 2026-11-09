@@ -28,6 +28,7 @@ _REQUIRED = [(backtest, ("evaluate_weights", "window_metrics", "expected_vol", "
                          "FITNESS", "parse_sizing")),
              (forwardtest, ("book_events", "book_report", "shadow_report")),
              (features, ("thin_groups",)),
+             (backtest, ("configure_vol_target",)),
              (models, ("ablate_sentiment", "sentiment_twin", "configure_purge", "configure_target",
                        "hold_baseline", "genome_record")),
              (datafeed, ("sentiment_features",))]
@@ -90,6 +91,7 @@ SIZING = US_CFG.get("sizing", "equal")
 backtest.configure_fitness(US_CFG.get("fitness"))
 models.configure_purge(US_CFG.get("evolution", {}).get("purge_labels", True))
 models.configure_target(US_CFG.get("evolution", {}).get("target_scale", "raw"))
+backtest.configure_vol_target(US_CFG.get("vt_max_scale", 3.0))
 GH = ghactions.configured()          # UI actions go through GitHub Actions (git = source of truth)
 
 
@@ -141,9 +143,9 @@ with st.sidebar:
     st.markdown(f"**Macro:** {'FRED' if settings.fred_key else 'Yahoo proxies'} · **Sentiment:** `{settings.sentiment_backend}`")
     st.divider()
     stocks = [s.strip().upper() for s in st.text_input(
-        "Stocks (comma-separated)", "AAPL, MSFT, NVDA, SPY").split(",") if s.strip()]
+        "Stocks (comma-separated)", ", ".join(US_CFG.get("stocks") or ["AAPL", "MSFT", "NVDA", "SPY"])).split(",") if s.strip()]
     cryptos = [s.strip().upper() for s in st.text_input(
-        "Crypto (comma-separated)", "BTC/USD, ETH/USD").split(",") if s.strip()]
+        "Crypto (comma-separated)", ", ".join(US_CFG.get("cryptos") or ["BTC/USD", "ETH/USD"])).split(",") if s.strip()]
     symbols = stocks + cryptos
     asset_map = {**{s: "stock" for s in stocks}, **{s: "crypto" for s in cryptos}}
     years = st.slider("History (years)", 1, 8, 2)
