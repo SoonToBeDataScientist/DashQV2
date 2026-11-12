@@ -1,6 +1,6 @@
 {
-  "ts": "2026-11-11T17:02:29.933075+00:00",
-  "session": "2026-11-11",
+  "ts": "2026-11-12T17:30:48.343420+00:00",
+  "session": "2026-11-12",
   "symbols": [
     "BBCA.JK",
     "BBRI.JK",
@@ -20,21 +20,21 @@
   ],
   "genome": "base",
   "signals": {
-    "ANTM.JK": -0.0706,
-    "ASII.JK": -0.2816,
-    "BBCA.JK": -0.0749,
-    "BBNI.JK": -0.2415,
-    "BBRI.JK": -0.1241,
-    "BMRI.JK": -0.104,
-    "EXCL.JK": -0.3403,
-    "ICBP.JK": -0.0771,
-    "INDF.JK": -0.3306,
-    "KLBF.JK": -0.3013,
-    "PGAS.JK": -0.1763,
-    "SMGR.JK": -0.0,
-    "TLKM.JK": -0.2188,
+    "ANTM.JK": -0.045,
+    "ASII.JK": -0.3174,
+    "BBCA.JK": -0.0466,
+    "BBNI.JK": -0.1592,
+    "BBRI.JK": -0.2306,
+    "BMRI.JK": -0.1762,
+    "EXCL.JK": -0.4362,
+    "ICBP.JK": -0.1681,
+    "INDF.JK": -0.3246,
+    "KLBF.JK": -0.3675,
+    "PGAS.JK": -0.2385,
+    "SMGR.JK": -0.0384,
+    "TLKM.JK": -0.3491,
     "UNTR.JK": -0.0,
-    "UNVR.JK": -0.2628
+    "UNVR.JK": -0.2074
   },
   "tradable": [],
   "book": {
@@ -53,7 +53,7 @@
       "INDF.JK": 0.0,
       "KLBF.JK": 0.0,
       "PGAS.JK": 0.0,
-      "SMGR.JK": -0.0,
+      "SMGR.JK": 0.0,
       "TLKM.JK": 0.0,
       "UNTR.JK": -0.0,
       "UNVR.JK": 0.0
@@ -67,30 +67,30 @@
   "data_health": {
     "issues": [],
     "sources": {
-      "BBCA.JK": "yfinance+cache",
-      "BBRI.JK": "yfinance+cache",
-      "BMRI.JK": "yfinance+cache",
-      "BBNI.JK": "yfinance+cache",
-      "TLKM.JK": "yfinance+cache",
-      "ASII.JK": "yfinance+cache",
-      "UNVR.JK": "yfinance+cache",
-      "ICBP.JK": "yfinance+cache",
-      "KLBF.JK": "yfinance+cache",
-      "SMGR.JK": "yfinance+cache",
-      "ANTM.JK": "yfinance+cache",
-      "PGAS.JK": "yfinance+cache",
-      "INDF.JK": "yfinance+cache",
       "UNTR.JK": "yfinance+cache",
-      "EXCL.JK": "yfinance+cache"
+      "BBCA.JK": "yfinance",
+      "BBRI.JK": "yfinance",
+      "BMRI.JK": "yfinance",
+      "BBNI.JK": "yfinance",
+      "TLKM.JK": "yfinance",
+      "ASII.JK": "yfinance",
+      "UNVR.JK": "yfinance",
+      "ICBP.JK": "yfinance",
+      "KLBF.JK": "yfinance",
+      "SMGR.JK": "yfinance",
+      "ANTM.JK": "yfinance",
+      "PGAS.JK": "yfinance",
+      "INDF.JK": "yfinance",
+      "EXCL.JK": "yfinance"
     }
   },
   "sentiment_days": 0,
   "sentiment_note": "sentiment off: 0 days of history, needs 730",
   "regime": {
-    "vix": 19.46,
-    "vix_z": 1.01,
-    "spy_ret21": -0.0226,
-    "usdidr": 17968.0,
-    "usdidr_chg5": 0.0246
+    "vix": 17.49,
+    "vix_z": 0.25,
+    "spy_ret21": -0.0115,
+    "usdidr": 18063.0,
+    "usdidr_chg5": 0.0316
   }
 }
