@@ -1,0 +1,18 @@
+{
+  "name": "G4-0",
+  "model_type": "lgbm",
+  "feature_groups": [
+    "volatility"
+  ],
+  "use_macro": false,
+  "use_sentiment": false,
+  "horizon": 5,
+  "train_window": 252,
+  "retrain_every": 42,
+  "smooth": 2,
+  "entry": 0.139,
+  "max_leverage": 1.5,
+  "n_estimators": 150,
+  "learning_rate": 0.05,
+  "max_depth": 3
+}
