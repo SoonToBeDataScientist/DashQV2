@@ -1,20 +1,20 @@
 {
-  "name": "G4-15",
-  "model_type": "rf",
+  "name": "G4-0",
+  "model_type": "lgbm",
   "feature_groups": [
-    "options",
-    "onchain",
+    "volatility",
+    "volume",
     "econ"
   ],
   "use_macro": false,
-  "use_sentiment": true,
-  "horizon": 3,
-  "train_window": 252,
+  "use_sentiment": false,
+  "horizon": 5,
+  "train_window": 378,
   "retrain_every": 10,
   "smooth": 8,
-  "entry": 0.08516094386233375,
+  "entry": 0.069,
   "max_leverage": 1.5,
-  "n_estimators": 300,
-  "learning_rate": 0.05,
+  "n_estimators": 500,
+  "learning_rate": 0.02,
   "max_depth": 4
 }
