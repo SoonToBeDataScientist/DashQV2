@@ -1,6 +1,6 @@
 {
-  "ts": "2026-11-13T17:07:57.774102+00:00",
-  "session": "2026-11-13",
+  "ts": "2026-11-16T19:30:25.901401+00:00",
+  "session": "2026-11-16",
   "symbols": [
     "BBCA.JK",
     "BBRI.JK",
@@ -18,50 +18,50 @@
     "UNTR.JK",
     "EXCL.JK"
   ],
-  "genome": "base",
+  "genome": "G4-0",
   "signals": {
-    "ANTM.JK": -0.0551,
-    "ASII.JK": -0.3544,
-    "BBCA.JK": -0.2252,
-    "BBNI.JK": -0.2777,
-    "BBRI.JK": -0.3283,
-    "BMRI.JK": -0.2443,
-    "EXCL.JK": -0.422,
-    "ICBP.JK": -0.355,
-    "INDF.JK": -0.1918,
-    "KLBF.JK": -0.2854,
-    "PGAS.JK": -0.2439,
-    "SMGR.JK": -0.131,
-    "TLKM.JK": -0.4379,
-    "UNTR.JK": -0.1348,
-    "UNVR.JK": -0.2208
+    "ANTM.JK": 0.0134,
+    "ASII.JK": -0.1711,
+    "BBCA.JK": -0.0,
+    "BBNI.JK": -0.233,
+    "BBRI.JK": -0.2141,
+    "BMRI.JK": -0.4514,
+    "EXCL.JK": -0.0,
+    "ICBP.JK": -0.0517,
+    "INDF.JK": -0.3076,
+    "KLBF.JK": -0.2428,
+    "PGAS.JK": -0.2366,
+    "SMGR.JK": 0.026,
+    "TLKM.JK": -0.417,
+    "UNTR.JK": -0.217,
+    "UNVR.JK": -0.3411
   },
   "tradable": [],
   "book": {
     "sizing": "equal",
     "target_vol": null,
-    "max_leverage": 1.0,
+    "max_leverage": 1.5,
     "weights": {
-      "ANTM.JK": 0.0,
+      "ANTM.JK": 0.00134,
       "ASII.JK": 0.0,
-      "BBCA.JK": 0.0,
+      "BBCA.JK": -0.0,
       "BBNI.JK": 0.0,
       "BBRI.JK": 0.0,
       "BMRI.JK": 0.0,
-      "EXCL.JK": 0.0,
+      "EXCL.JK": -0.0,
       "ICBP.JK": 0.0,
       "INDF.JK": 0.0,
       "KLBF.JK": 0.0,
       "PGAS.JK": 0.0,
-      "SMGR.JK": 0.0,
+      "SMGR.JK": 0.0026,
       "TLKM.JK": 0.0,
       "UNTR.JK": 0.0,
       "UNVR.JK": 0.0
     },
-    "gross": 0.0,
-    "base_gross": 0.0,
-    "scale": null,
-    "expected_vol": 0.0,
+    "gross": 0.0039,
+    "base_gross": 0.0039,
+    "scale": 1.0,
+    "expected_vol": 0.0022,
     "mode": "ml"
   },
   "data_health": {
@@ -80,17 +80,16 @@
       "ANTM.JK": "yfinance+cache",
       "PGAS.JK": "yfinance+cache",
       "INDF.JK": "yfinance+cache",
-      "EXCL.JK": "yfinance+cache",
-      "UNTR.JK": "yfinance"
+      "UNTR.JK": "yfinance+cache",
+      "EXCL.JK": "yfinance+cache"
     }
   },
   "sentiment_days": 0,
-  "sentiment_note": "sentiment off: 0 days of history, needs 730",
   "regime": {
-    "vix": 18.7,
-    "vix_z": 0.69,
-    "spy_ret21": -0.0261,
-    "usdidr": 18149.0,
-    "usdidr_chg5": 0.0383
+    "vix": 19.3,
+    "vix_z": 0.89,
+    "spy_ret21": -0.0301,
+    "usdidr": 18126.0,
+    "usdidr_chg5": 0.0017
   }
 }
