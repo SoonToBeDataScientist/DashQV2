@@ -1,6 +1,6 @@
 {
-  "ts": "2026-11-24T20:05:52.986597+00:00",
-  "session": "2026-11-24",
+  "ts": "2026-11-25T19:07:26.027629+00:00",
+  "session": "2026-11-25",
   "symbols": [
     "BBCA.JK",
     "BBRI.JK",
@@ -21,20 +21,20 @@
   "genome": "G4-0",
   "signals": {
     "ANTM.JK": -0.0,
-    "ASII.JK": -0.1764,
-    "BBCA.JK": -0.4044,
-    "BBNI.JK": -0.2137,
-    "BBRI.JK": -0.285,
-    "BMRI.JK": -0.1835,
-    "EXCL.JK": -0.5184,
-    "ICBP.JK": -0.3077,
-    "INDF.JK": -0.1547,
-    "KLBF.JK": -0.2516,
-    "PGAS.JK": -0.416,
-    "SMGR.JK": -0.3322,
-    "TLKM.JK": -0.0,
-    "UNTR.JK": -0.2487,
-    "UNVR.JK": -0.0478
+    "ASII.JK": -0.0069,
+    "BBCA.JK": -0.3626,
+    "BBNI.JK": -0.3003,
+    "BBRI.JK": -0.2768,
+    "BMRI.JK": -0.2813,
+    "EXCL.JK": -0.4298,
+    "ICBP.JK": -0.2705,
+    "INDF.JK": -0.2875,
+    "KLBF.JK": -0.2828,
+    "PGAS.JK": -0.5687,
+    "SMGR.JK": -0.0563,
+    "TLKM.JK": 0.0,
+    "UNTR.JK": -0.1946,
+    "UNVR.JK": -0.2578
   },
   "tradable": [],
   "book": {
@@ -54,7 +54,7 @@
       "KLBF.JK": 0.0,
       "PGAS.JK": 0.0,
       "SMGR.JK": 0.0,
-      "TLKM.JK": -0.0,
+      "TLKM.JK": 0.0,
       "UNTR.JK": 0.0,
       "UNVR.JK": 0.0
     },
@@ -86,10 +86,10 @@
   },
   "sentiment_days": 0,
   "regime": {
-    "vix": 26.62,
-    "vix_z": 1.92,
-    "spy_ret21": -0.0643,
-    "usdidr": 18220.0,
-    "usdidr_chg5": 0.0355
+    "vix": 26.36,
+    "vix_z": 1.78,
+    "spy_ret21": -0.0678,
+    "usdidr": 18303.0,
+    "usdidr_chg5": 0.0364
   }
 }
